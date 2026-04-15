@@ -472,6 +472,299 @@ def compute_hex8_element_stiffness(
     return Ke
 
 
+def _tet4_shape_funcs_grads(xi: float, eta: float, zeta: float):
+    """Return N, dN/dxi, dN/deta, dN/dzeta for linear Tet4.
+
+    Natural coordinates (volume coordinates):
+        N1 = 1 - xi - eta - zeta
+        N2 = xi
+        N3 = eta
+        N4 = zeta
+    """
+    N = np.array([
+        1.0 - xi - eta - zeta,
+        xi,
+        eta,
+        zeta,
+    ], dtype=float)
+
+    dN_dxi = np.array([-1.0, 1.0, 0.0, 0.0], dtype=float)
+    dN_deta = np.array([-1.0, 0.0, 1.0, 0.0], dtype=float)
+    dN_dzeta = np.array([-1.0, 0.0, 0.0, 1.0], dtype=float)
+
+    return N, dN_dxi, dN_deta, dN_dzeta
+
+
+def _tet4_gauss_points():
+    """Return Gauss integration points for Tet4 (single point at centroid).
+
+    For linear Tet4, the stiffness matrix can be exactly integrated
+    with a single point at (1/4, 1/4, 1/4) with weight 1/6.
+    """
+    return [(0.25, 0.25, 0.25, 1.0 / 6.0)]
+
+
+def compute_tet4_element_stiffness(
+    mesh,
+    elem,
+    node_lookup: Optional[Dict[int, Node3D]] = None,
+) -> np.ndarray:
+    """Compute isoparametric Tet4 element stiffness matrix (12x12)."""
+    if len(elem.node_ids) != 4:
+        raise ValueError(f"Tet4 element must have 4 nodes, got {len(elem.node_ids)}")
+
+    try:
+        E = float(elem.props["E"])
+        nu = float(elem.props["nu"])
+    except KeyError as e:
+        raise KeyError(f"Element {elem.id} missing property {e.args[0]}, props={elem.props}")
+
+    D = _compute_D_3d(E, nu)
+
+    if node_lookup is None:
+        node_lookup = _build_node_lookup_3d(mesh)
+
+    nids = elem.node_ids
+    nodes = [node_lookup[nid] for nid in nids]
+    x = np.array([n.x for n in nodes], dtype=float)
+    y = np.array([n.y for n in nodes], dtype=float)
+    z = np.array([n.z for n in nodes], dtype=float)
+
+    gps = _tet4_gauss_points()
+    Ke = np.zeros((12, 12), dtype=float)  # 4 nodes * 3 DOFs
+
+    for xi, eta, zeta, w in gps:
+        N, dN_dxi, dN_deta, dN_dzeta = _tet4_shape_funcs_grads(xi, eta, zeta)
+
+        # Jacobian matrix J = d(x,y,z)/d(xi,eta,zeta)
+        J = np.array([
+            [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
+            [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],
+            [np.sum(dN_dzeta * x), np.sum(dN_dzeta * y), np.sum(dN_dzeta * z)],
+        ], dtype=float)
+
+        detJ = np.linalg.det(J)
+        if detJ <= 0.0:
+            raise ValueError(f"Element {elem.id} has negative or zero Jacobian determinant")
+
+        invJ = np.linalg.inv(J)
+
+        # Derivatives in physical coordinates: dN/dx = invJ * dN/d(xi,eta,zeta)
+        dN_dx = invJ[0, 0] * dN_dxi + invJ[0, 1] * dN_deta + invJ[0, 2] * dN_dzeta
+        dN_dy = invJ[1, 0] * dN_dxi + invJ[1, 1] * dN_deta + invJ[1, 2] * dN_dzeta
+        dN_dz = invJ[2, 0] * dN_dxi + invJ[2, 1] * dN_deta + invJ[2, 2] * dN_dzeta
+
+        # Strain-displacement matrix B (6 strains x 12 DOFs)
+        B = np.zeros((6, 12), dtype=float)
+        for i in range(4):
+            idx = 3 * i
+            B[0, idx] = dN_dx[i]       # eps_xx
+            B[1, idx + 1] = dN_dy[i]   # eps_yy
+            B[2, idx + 2] = dN_dz[i]   # eps_zz
+            B[3, idx] = dN_dy[i]       # gamma_xy
+            B[3, idx + 1] = dN_dx[i]
+            B[4, idx + 1] = dN_dz[i]   # gamma_yz
+            B[4, idx + 2] = dN_dy[i]
+            B[5, idx] = dN_dz[i]       # gamma_zx
+            B[5, idx + 2] = dN_dx[i]
+
+        Ke += (B.T @ D @ B) * detJ * w
+
+    return Ke
+
+
+def _tet10_shape_funcs_grads(xi: float, eta: float, zeta: float):
+    """Return N, dN/dxi, dN/deta, dN/dzeta for quadratic Tet10.
+
+    Node ordering (Abaqus convention):
+        Corner nodes:  1=(0,0,0), 2=(1,0,0), 3=(0,1,0), 4=(0,0,1)
+        Edge midnodes: 5=edge(1,2), 6=edge(2,3), 7=edge(3,1),
+                       8=edge(1,4), 9=edge(2,4), 10=edge(3,4)
+
+    Shape functions (natural coords L1=1-xi-eta-zeta, L2=xi, L3=eta, L4=zeta):
+        N_corner_i = (2*L_i - 1) * L_i
+        N_edge_5  = 4*L1*L2   (edge 1-2)
+        N_edge_6  = 4*L2*L3   (edge 2-3)
+        N_edge_7  = 4*L1*L3   (edge 3-1)
+        N_edge_8  = 4*L1*L4   (edge 1-4)
+        N_edge_9  = 4*L2*L4   (edge 2-4)
+        N_edge_10 = 4*L3*L4   (edge 3-4)
+    """
+    L1 = 1.0 - xi - eta - zeta
+    L2 = xi
+    L3 = eta
+    L4 = zeta
+
+    N = np.zeros(10, dtype=float)
+    dN_dxi = np.zeros(10, dtype=float)
+    dN_deta = np.zeros(10, dtype=float)
+    dN_dzeta = np.zeros(10, dtype=float)
+
+    # Corner nodes
+    N[0] = (2.0 * L1 - 1.0) * L1
+    N[1] = (2.0 * L2 - 1.0) * L2
+    N[2] = (2.0 * L3 - 1.0) * L3
+    N[3] = (2.0 * L4 - 1.0) * L4
+
+    # Edge midnodes
+    N[4] = 4.0 * L1 * L2   # edge 1-2
+    N[5] = 4.0 * L2 * L3   # edge 2-3
+    N[6] = 4.0 * L1 * L3   # edge 3-1
+    N[7] = 4.0 * L1 * L4   # edge 1-4
+    N[8] = 4.0 * L2 * L4   # edge 2-4
+    N[9] = 4.0 * L3 * L4   # edge 3-4
+
+    # Derivatives of volume coordinates
+    dL1_dxi = -1.0; dL1_deta = -1.0; dL1_dzeta = -1.0
+    dL2_dxi = 1.0;  dL2_deta = 0.0;  dL2_dzeta = 0.0
+    dL3_dxi = 0.0;  dL3_deta = 1.0;  dL3_dzeta = 0.0
+    dL4_dxi = 0.0;  dL4_deta = 0.0;  dL4_dzeta = 1.0
+
+    # Corner node derivatives: N_i = (2*L_i - 1)*L_i, dN_i/dL = 4*L_i - 1
+    dN_dxi[0]   = (4.0 * L1 - 1.0) * dL1_dxi
+    dN_deta[0]  = (4.0 * L1 - 1.0) * dL1_deta
+    dN_dzeta[0] = (4.0 * L1 - 1.0) * dL1_dzeta
+
+    dN_dxi[1]   = (4.0 * L2 - 1.0) * dL2_dxi
+    dN_deta[1]  = (4.0 * L2 - 1.0) * dL2_deta
+    dN_dzeta[1] = (4.0 * L2 - 1.0) * dL2_dzeta
+
+    dN_dxi[2]   = (4.0 * L3 - 1.0) * dL3_dxi
+    dN_deta[2]  = (4.0 * L3 - 1.0) * dL3_deta
+    dN_dzeta[2] = (4.0 * L3 - 1.0) * dL3_dzeta
+
+    dN_dxi[3]   = (4.0 * L4 - 1.0) * dL4_dxi
+    dN_deta[3]  = (4.0 * L4 - 1.0) * dL4_deta
+    dN_dzeta[3] = (4.0 * L4 - 1.0) * dL4_dzeta
+
+    # Edge midnode derivatives: N_5 = 4*L1*L2, dN_5/dL1=4*L2, dN_5/dL2=4*L1
+    # Edge 5: 4*L1*L2
+    dN_dxi[4]   = 4.0 * (L2 * dL1_dxi + L1 * dL2_dxi)
+    dN_deta[4]  = 4.0 * (L2 * dL1_deta + L1 * dL2_deta)
+    dN_dzeta[4] = 4.0 * (L2 * dL1_dzeta + L1 * dL2_dzeta)
+
+    # Edge 6: 4*L2*L3
+    dN_dxi[5]   = 4.0 * (L3 * dL2_dxi + L2 * dL3_dxi)
+    dN_deta[5]  = 4.0 * (L3 * dL2_deta + L2 * dL3_deta)
+    dN_dzeta[5] = 4.0 * (L3 * dL2_dzeta + L2 * dL3_dzeta)
+
+    # Edge 7: 4*L1*L3
+    dN_dxi[6]   = 4.0 * (L3 * dL1_dxi + L1 * dL3_dxi)
+    dN_deta[6]  = 4.0 * (L3 * dL1_deta + L1 * dL3_deta)
+    dN_dzeta[6] = 4.0 * (L3 * dL1_dzeta + L1 * dL3_dzeta)
+
+    # Edge 8: 4*L1*L4
+    dN_dxi[7]   = 4.0 * (L4 * dL1_dxi + L1 * dL4_dxi)
+    dN_deta[7]  = 4.0 * (L4 * dL1_deta + L1 * dL4_deta)
+    dN_dzeta[7] = 4.0 * (L4 * dL1_dzeta + L1 * dL4_dzeta)
+
+    # Edge 9: 4*L2*L4
+    dN_dxi[8]   = 4.0 * (L4 * dL2_dxi + L2 * dL4_dxi)
+    dN_deta[8]  = 4.0 * (L4 * dL2_deta + L2 * dL4_deta)
+    dN_dzeta[8] = 4.0 * (L4 * dL2_dzeta + L2 * dL4_dzeta)
+
+    # Edge 10: 4*L3*L4
+    dN_dxi[9]   = 4.0 * (L4 * dL3_dxi + L3 * dL4_dxi)
+    dN_deta[9]  = 4.0 * (L4 * dL3_deta + L3 * dL4_deta)
+    dN_dzeta[9] = 4.0 * (L4 * dL3_dzeta + L3 * dL4_dzeta)
+
+    return N, dN_dxi, dN_deta, dN_dzeta
+
+
+def _tet10_gauss_points():
+    """Return Gauss integration points for Tet10 (4-point rule).
+
+    Uses the 4-point tetrahedral rule with points at:
+        (a, a, a)       w = 1/24
+        (b, a, a)       w = 1/24
+        (a, b, a)       w = 1/24
+        (a, a, b)       w = 1/24
+    where a = (1-n)/4, b = (1+3n)/4, n = 0.58541020 (Hammer point)
+    """
+    n = 0.58541020
+    a = (1.0 - n) / 4.0
+    b = (1.0 + 3.0 * n) / 4.0
+    w = 1.0 / 24.0
+    return [
+        (a, a, a, w),
+        (b, a, a, w),
+        (a, b, a, w),
+        (a, a, b, w),
+    ]
+
+
+def compute_tet10_element_stiffness(
+    mesh,
+    elem,
+    node_lookup: Optional[Dict[int, Node3D]] = None,
+) -> np.ndarray:
+    """Compute isoparametric Tet10 element stiffness matrix (30x30).
+
+    10-node quadratic tetrahedron with 3 DOFs per node (ux, uy, uz).
+    """
+    if len(elem.node_ids) != 10:
+        raise ValueError(f"Tet10 element must have 10 nodes, got {len(elem.node_ids)}")
+
+    try:
+        E = float(elem.props["E"])
+        nu = float(elem.props["nu"])
+    except KeyError as e:
+        raise KeyError(f"Element {elem.id} missing property {e.args[0]}, props={elem.props}")
+
+    D = _compute_D_3d(E, nu)
+
+    if node_lookup is None:
+        node_lookup = _build_node_lookup_3d(mesh)
+
+    nids = elem.node_ids
+    nodes = [node_lookup[nid] for nid in nids]
+    x = np.array([n.x for n in nodes], dtype=float)
+    y = np.array([n.y for n in nodes], dtype=float)
+    z = np.array([n.z for n in nodes], dtype=float)
+
+    gps = _tet10_gauss_points()
+    Ke = np.zeros((30, 30), dtype=float)  # 10 nodes * 3 DOFs
+
+    for xi, eta, zeta, w in gps:
+        N, dN_dxi, dN_deta, dN_dzeta = _tet10_shape_funcs_grads(xi, eta, zeta)
+
+        # Jacobian matrix J = d(x,y,z)/d(xi,eta,zeta)
+        J = np.array([
+            [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
+            [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],
+            [np.sum(dN_dzeta * x), np.sum(dN_dzeta * y), np.sum(dN_dzeta * z)],
+        ], dtype=float)
+
+        detJ = np.linalg.det(J)
+        if detJ <= 0.0:
+            raise ValueError(f"Element {elem.id} has negative or zero Jacobian determinant")
+
+        invJ = np.linalg.inv(J)
+
+        # Derivatives in physical coordinates
+        dN_dx = invJ[0, 0] * dN_dxi + invJ[0, 1] * dN_deta + invJ[0, 2] * dN_dzeta
+        dN_dy = invJ[1, 0] * dN_dxi + invJ[1, 1] * dN_deta + invJ[1, 2] * dN_dzeta
+        dN_dz = invJ[2, 0] * dN_dxi + invJ[2, 1] * dN_deta + invJ[2, 2] * dN_dzeta
+
+        # Strain-displacement matrix B (6 strains x 30 DOFs)
+        B = np.zeros((6, 30), dtype=float)
+        for i in range(10):
+            idx = 3 * i
+            B[0, idx] = dN_dx[i]       # eps_xx
+            B[1, idx + 1] = dN_dy[i]   # eps_yy
+            B[2, idx + 2] = dN_dz[i]   # eps_zz
+            B[3, idx] = dN_dy[i]       # gamma_xy
+            B[3, idx + 1] = dN_dx[i]
+            B[4, idx + 1] = dN_dz[i]   # gamma_yz
+            B[4, idx + 2] = dN_dy[i]
+            B[5, idx] = dN_dz[i]       # gamma_zx
+            B[5, idx + 2] = dN_dx[i]
+
+        Ke += (B.T @ D @ B) * detJ * w
+
+    return Ke
+
+
 def _quad8_shape_funcs_grads(xi: float, eta: float):
     """Return N, dN/dxi, dN/deta for serendipity Quad8."""
     N = np.zeros(8, dtype=float)

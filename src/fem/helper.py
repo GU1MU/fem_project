@@ -7,7 +7,6 @@ def select_node_ids_by_y(mesh, y_value: float, tol: float = 1e-8):
     """Return node ids whose y matches target within tol."""
     return [n.id for n in mesh.nodes if abs(n.y - y_value) <= tol]
 
-
 def select_node_ids_by_xz(mesh, x_value: float, z_value: float, tol: float = 1e-8):
     """Return node ids whose x and z match target within tol."""
     return [

@@ -161,7 +161,7 @@ def build_load_vector_3d(mesh: Any, bc: BoundaryCondition3D) -> np.ndarray:
 
 
 def _add_element_body_force_consistent_3d(mesh: Any, elem: Any, node_lookup: Dict[int, Any], F: np.ndarray, bx: float, by: float, bz: float) -> None:
-    """Assemble consistent body force for Hex8."""
+    """Assemble consistent body force for Hex8/Tet4."""
     et = str(elem.type).lower()
 
     if "hex8" in et:
@@ -203,9 +203,48 @@ def _add_element_body_force_consistent_3d(mesh: Any, elem: Any, node_lookup: Dic
         dofs = mesh.element_dofs(elem)
         F[dofs] += fe
 
+    elif "tet4" in et:
+        # For Tet4, use single-point integration at centroid
+        from .stiffness import _tet4_shape_funcs_grads
+
+        nids = elem.node_ids
+        nodes = [node_lookup[i] for i in nids]
+        x = np.array([n.x for n in nodes], dtype=float)
+        y = np.array([n.y for n in nodes], dtype=float)
+        z = np.array([n.z for n in nodes], dtype=float)
+
+        # Single Gauss point at centroid (1/4, 1/4, 1/4), weight = 1/6
+        N, dN_dxi, dN_deta, dN_dzeta = _tet4_shape_funcs_grads(0.25, 0.25, 0.25)
+
+        J = np.array([
+            [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
+            [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],
+            [np.sum(dN_dzeta * x), np.sum(dN_dzeta * y), np.sum(dN_dzeta * z)],
+        ], dtype=float)
+        detJ = np.linalg.det(J)
+
+        bvec = np.array([float(bx), float(by), float(bz)], dtype=float)
+        fe = np.zeros(12, dtype=float)  # 4 nodes * 3 DOFs
+        w = 1.0 / 6.0
+
+        for i in range(4):
+            idx = 3 * i
+            fe[idx] += N[i] * bvec[0] * detJ * w
+            fe[idx + 1] += N[i] * bvec[1] * detJ * w
+            fe[idx + 2] += N[i] * bvec[2] * detJ * w
+
+        dofs = mesh.element_dofs(elem)
+        F[dofs] += fe
+
+    elif "tet10" in et:
+        raise NotImplementedError("Tet10 consistent body-force assembly is not implemented")
+
+    else:
+        raise NotImplementedError(f"Unsupported 3D element type for body force assembly: {elem.type}")
+
 
 def _add_element_face_traction_consistent_3d(mesh: Any, elem: Any, node_lookup: Dict[int, Any], F: np.ndarray, local_face: int, tx: float, ty: float, tz: float) -> None:
-    """Assemble consistent face traction for Hex8."""
+    """Assemble consistent face traction for Hex8/Tet4."""
     et = str(elem.type).lower()
 
     if "hex8" in et:
@@ -253,6 +292,64 @@ def _add_element_face_traction_consistent_3d(mesh: Any, elem: Any, node_lookup: 
 
         dofs = mesh.element_dofs(elem)
         F[dofs] += fe
+
+    elif "tet4" in et:
+        # Tet4 faces: each face is a triangle, opposite to node i
+        # Face 0: opposite node 0 -> nodes (1, 2, 3)
+        # Face 1: opposite node 1 -> nodes (0, 2, 3)
+        # Face 2: opposite node 2 -> nodes (0, 1, 3)
+        # Face 3: opposite node 3 -> nodes (0, 1, 2)
+        face_node_indices = [
+            [1, 2, 3],
+            [0, 2, 3],
+            [0, 1, 3],
+            [0, 1, 2],
+        ]
+
+        if local_face < 0 or local_face >= 4:
+            raise ValueError(f"Invalid local_face {local_face}, must be 0-3 for Tet4")
+
+        # Face node indices in the element
+        face_local = face_node_indices[local_face]
+        face_nids = [elem.node_ids[i] for i in face_local]
+        face_nodes = [node_lookup[nid] for nid in face_nids]
+
+        # Use single-point integration at face centroid (1/3, 1/3)
+        # Area coordinates for triangle: L1 = 1 - xi - eta, L2 = xi, L3 = eta
+        # Shape functions: N = [1-xi-eta, xi, eta]
+        # Centroid: xi = 1/3, eta = 1/3, weight = 1/2
+
+        p1 = np.array([face_nodes[0].x, face_nodes[0].y, face_nodes[0].z], dtype=float)
+        p2 = np.array([face_nodes[1].x, face_nodes[1].y, face_nodes[1].z], dtype=float)
+        p3 = np.array([face_nodes[2].x, face_nodes[2].y, face_nodes[2].z], dtype=float)
+
+        # Compute face area using cross product
+        v1 = p2 - p1
+        v2 = p3 - p1
+        area = 0.5 * np.linalg.norm(np.cross(v1, v2))
+        if area <= 0.0:
+            raise ValueError(f"Tet4 elem {elem.id} face {local_face} has zero area")
+
+        # Consistent load: each face node gets 1/3 of the total traction force
+        N_face = np.array([1.0/3.0, 1.0/3.0, 1.0/3.0])
+        tvec = np.array([float(tx), float(ty), float(tz)], dtype=float)
+
+        fe = np.zeros(12, dtype=float)  # 4 nodes * 3 DOFs
+        for i in range(3):
+            global_node_idx = face_local[i]
+            idx = 3 * global_node_idx
+            fe[idx] += N_face[i] * tvec[0] * area
+            fe[idx + 1] += N_face[i] * tvec[1] * area
+            fe[idx + 2] += N_face[i] * tvec[2] * area
+
+        dofs = mesh.element_dofs(elem)
+        F[dofs] += fe
+
+    elif "tet10" in et:
+        raise NotImplementedError("Tet10 consistent face-traction assembly is not implemented")
+
+    else:
+        raise NotImplementedError(f"Unsupported 3D element type for face traction assembly: {elem.type}")
 
 
 def apply_dirichlet_bc(K: csr_matrix, F: np.ndarray, bc: BoundaryCondition2D) -> Tuple[csr_matrix, np.ndarray]:

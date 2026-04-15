@@ -208,4 +208,43 @@ class HexMesh3D:
 
     def generate_global_dof_sequence(self):
         return self.dof_manager.generate_global_dof_sequence()
+
+
+@dataclass
+class TetMesh3D:
+    """Tetrahedral 3D mesh container (ux, uy, uz)."""
+
+    nodes: List[Node3D]
+    elements: List[Element3D]
+    dofs_per_node: int = 3  # ux, uy, uz
+
+    dof_manager: DofManager3D = field(init=False)
+
+    def __post_init__(self):
+        self.dof_manager = DofManager3D.from_nodes(self.nodes, self.dofs_per_node)
+
+    @property
+    def num_dofs(self) -> int:
+        return self.dof_manager.num_dofs
+
+    @property
+    def num_nodes(self) -> int:
+        return self.dof_manager.num_nodes
+
+    @property
+    def num_elements(self) -> int:
+        """Number of elements."""
+        return len(self.elements)
+
+    def global_dof(self, node_id: int, component: int) -> int:
+        return self.dof_manager.global_dof(node_id, component)
+
+    def node_dofs(self, node_id: int):
+        return self.dof_manager.node_dofs(node_id)
+
+    def element_dofs(self, elem: Element3D):
+        return self.dof_manager.element_dofs(elem.node_ids)
+
+    def generate_global_dof_sequence(self):
+        return self.dof_manager.generate_global_dof_sequence()
     

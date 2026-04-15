@@ -1,8 +1,9 @@
 from __future__ import  annotations
 
 import csv
+import numpy as np
 from typing import Dict, List, Optional, Tuple
-from .mesh import Node2D, Element2D, TrussMesh2D, BeamMesh2D, PlaneMesh2D, Node3D, Element3D, HexMesh3D
+from .mesh import Node2D, Element2D, TrussMesh2D, BeamMesh2D, PlaneMesh2D, Node3D, Element3D, HexMesh3D, TetMesh3D
 
 
 def read_materials_as_dict(path: str) -> Dict[int, Dict[str, str]]:
@@ -783,6 +784,115 @@ def read_quad8_2d_abaqus(
     return PlaneMesh2D(nodes=nodes, elements=elements)
 
 
+def read_tet10_3d_abaqus(
+    inp_path: str,
+    material_id: int,
+    material_path: Optional[str] = None,
+) -> TetMesh3D:
+    """Read a Tet10 3D mesh from Abaqus .inp file (C3D10 elements).
+
+    Node ordering (Abaqus convention):
+        Corner nodes:  1-4
+        Edge midnodes: 5=edge(1,2), 6=edge(3,4), 7=edge(1,4),
+                       8=edge(1,3), 9=edge(2,4), 10=edge(2,3)
+    """
+    materials: Dict[int, Dict[str, str]] = {}
+    if material_path is not None:
+        materials = read_materials_as_dict(material_path)
+        if material_id not in materials:
+            raise KeyError(f"material_id={material_id} not found in {material_path}")
+
+    nodes: List[Node3D] = []
+    elements: List[Element3D] = []
+    node_lookup: Dict[int, Node3D] = {}
+
+    in_node = False
+    in_elem = False
+    elem_abaqus_type: Optional[str] = None
+
+    def split_nums(line: str) -> List[str]:
+        parts = [p.strip() for p in line.strip().split(",")]
+        return [p for p in parts if p]
+
+    with open(inp_path, "r", encoding="utf-8", errors="ignore") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("**"):
+                continue
+
+            if line.startswith("*"):
+                kw = line.strip().upper()
+                in_node = kw.startswith("*NODE")
+                if kw.startswith("*ELEMENT"):
+                    in_elem = False
+                    elem_abaqus_type = None
+                    parts = [p.strip() for p in kw.split(",")]
+                    et = None
+                    for p in parts:
+                        if p.startswith("TYPE="):
+                            et = p.split("=", 1)[1].strip()
+                            break
+                    if et in ("C3D10", "C3D10T"):
+                        in_elem = True
+                        elem_abaqus_type = et
+                else:
+                    in_elem = False
+                    elem_abaqus_type = None
+                continue
+
+            if in_node:
+                parts = split_nums(line)
+                if len(parts) < 4:
+                    continue
+                nid = int(parts[0])
+                x = float(parts[1])
+                y = float(parts[2])
+                z = float(parts[3])
+                n = Node3D(id=nid, x=x, y=y, z=z)
+                nodes.append(n)
+                node_lookup[nid] = n
+                continue
+
+            if in_elem and elem_abaqus_type is not None:
+                parts = split_nums(line)
+                if len(parts) < 11:
+                    continue
+                eid = int(parts[0])
+                nids = [int(p) for p in parts[1:11]]
+
+                props: Dict[str, any] = {
+                    "material_id": int(material_id),
+                }
+
+                if materials:
+                    row = materials[int(material_id)]
+                    E = _get_float_from_material(row, ["E", "young", "youngs_modulus"])
+                    nu = _get_float_from_material(row, ["nu", "poisson", "poisson_ratio"])
+                    rho = _get_float_from_material(row, ["rho", "rou", "density"])
+                    if E is None or nu is None:
+                        raise KeyError(f"Material {material_id} missing E/nu: {row}")
+                    props["E"] = E
+                    props["nu"] = nu
+                    if rho is not None:
+                        props["rho"] = rho
+
+                elements.append(
+                    Element3D(
+                        id=eid,
+                        node_ids=nids,
+                        type="Tet10",
+                        props=props,
+                    )
+                )
+
+    if not nodes:
+        raise ValueError(f"No *Node data found in {inp_path}")
+    if not elements:
+        raise ValueError(f"No C3D10 *Element data found in {inp_path}")
+
+    return TetMesh3D(nodes=nodes, elements=elements)
+
+
 def read_hex8_csv(
     mesh_path: str,
     material_path: Optional[str] = None,
@@ -881,16 +991,17 @@ def read_hex8_csv(
 
     return HexMesh3D(nodes=nodes, elements=elements)
 
-def read_hex8_3d_abaqus(
+
+def read_tet4_3d_abaqus(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
-) -> HexMesh3D:
-    """Read Hex8 3D mesh (C3D8) from Abaqus INP file."""
-    materials_dict: Dict[int, Dict[str, str]] = {}
+) -> TetMesh3D:
+    """Read a Tet4 3D mesh from Abaqus .inp file (C3D4 / C3D4T elements)."""
+    materials: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        materials_dict = read_materials_as_dict(material_path)
-        if material_id not in materials_dict:
+        materials = read_materials_as_dict(material_path)
+        if material_id not in materials:
             raise KeyError(f"material_id={material_id} not found in {material_path}")
 
     nodes: List[Node3D] = []
@@ -914,63 +1025,171 @@ def read_hex8_3d_abaqus(
             if line.startswith("*"):
                 kw = line.strip().upper()
                 in_node = kw.startswith("*NODE")
-
                 if kw.startswith("*ELEMENT"):
                     in_elem = False
                     elem_abaqus_type = None
-
                     parts = [p.strip() for p in kw.split(",")]
                     et = None
                     for p in parts:
                         if p.startswith("TYPE="):
                             et = p.split("=", 1)[1].strip()
                             break
-
-                    if et in ("C3D8"):
+                    if et in ("C3D4", "C3D4T"):
                         in_elem = True
                         elem_abaqus_type = et
                 else:
                     in_elem = False
                     elem_abaqus_type = None
-
                 continue
 
             if in_node:
                 parts = split_nums(line)
                 if len(parts) < 4:
                     continue
-
                 nid = int(parts[0])
                 x = float(parts[1])
                 y = float(parts[2])
                 z = float(parts[3])
+                n = Node3D(id=nid, x=x, y=y, z=z)
+                nodes.append(n)
+                node_lookup[nid] = n
+                continue
 
-                node = Node3D(id=nid, x=x, y=y, z=z)
-                nodes.append(node)
-                node_lookup[nid] = node
+            if in_elem and elem_abaqus_type is not None:
+                parts = split_nums(line)
+                if len(parts) < 5:
+                    continue
+                eid = int(parts[0])
+                n1, n2, n3, n4 = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+
+                props: Dict[str, any] = {
+                    "material_id": int(material_id),
+                }
+
+                if materials:
+                    row = materials[int(material_id)]
+                    E = _get_float_from_material(row, ["E", "young", "youngs_modulus"])
+                    nu = _get_float_from_material(row, ["nu", "poisson", "poisson_ratio"])
+                    rho = _get_float_from_material(row, ["rho", "rou", "density"])
+                    if E is None or nu is None:
+                        raise KeyError(f"Material {material_id} missing E/nu: {row}")
+                    props["E"] = E
+                    props["nu"] = nu
+                    if rho is not None:
+                        props["rho"] = rho
+
+                elements.append(
+                    Element3D(
+                        id=eid,
+                        node_ids=[n1, n2, n3, n4],
+                        type="Tet4",
+                        props=props,
+                    )
+                )
+
+    if not nodes:
+        raise ValueError(f"No *Node data found in {inp_path}")
+    if not elements:
+        raise ValueError(f"No C3D4/C3D4T *Element data found in {inp_path}")
+
+    # Check volume (Jacobian determinant) for each element
+    for e in elements:
+        n1, n2, n3, n4 = (node_lookup[nid] for nid in e.node_ids)
+        # Volume = det(J)/6 where J columns are (x2-x1, x3-x1, x4-x1)
+        v1 = np.array([n2.x - n1.x, n2.y - n1.y, n2.z - n1.z])
+        v2 = np.array([n3.x - n1.x, n3.y - n1.y, n3.z - n1.z])
+        v3 = np.array([n4.x - n1.x, n4.y - n1.y, n4.z - n1.z])
+        vol = np.dot(v1, np.cross(v2, v3)) / 6.0
+        if vol <= 0.0:
+            raise ValueError(
+                f"Element {e.id} has zero or negative volume "
+                f"(nodes: {e.node_ids}). Check node ordering."
+            )
+
+    return TetMesh3D(nodes=nodes, elements=elements)
+
+
+def read_hex8_3d_abaqus(
+    inp_path: str,
+    material_id: int,
+    material_path: Optional[str] = None,
+) -> HexMesh3D:
+    """Read a Hex8 3D mesh from Abaqus .inp file (C3D8 elements)."""
+    materials: Dict[int, Dict[str, str]] = {}
+    if material_path is not None:
+        materials = read_materials_as_dict(material_path)
+        if material_id not in materials:
+            raise KeyError(f"material_id={material_id} not found in {material_path}")
+
+    nodes: List[Node3D] = []
+    elements: List[Element3D] = []
+    node_lookup: Dict[int, Node3D] = {}
+
+    in_node = False
+    in_elem = False
+    elem_abaqus_type: Optional[str] = None
+
+    def split_nums(line: str) -> List[str]:
+        parts = [p.strip() for p in line.strip().split(",")]
+        return [p for p in parts if p]
+
+    with open(inp_path, "r", encoding="utf-8", errors="ignore") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("**"):
+                continue
+
+            if line.startswith("*"):
+                kw = line.strip().upper()
+                in_node = kw.startswith("*NODE")
+                if kw.startswith("*ELEMENT"):
+                    in_elem = False
+                    elem_abaqus_type = None
+                    parts = [p.strip() for p in kw.split(",")]
+                    et = None
+                    for p in parts:
+                        if p.startswith("TYPE="):
+                            et = p.split("=", 1)[1].strip()
+                            break
+                    if et == "C3D8":
+                        in_elem = True
+                        elem_abaqus_type = et
+                else:
+                    in_elem = False
+                    elem_abaqus_type = None
+                continue
+
+            if in_node:
+                parts = split_nums(line)
+                if len(parts) < 4:
+                    continue
+                nid = int(parts[0])
+                x = float(parts[1])
+                y = float(parts[2])
+                z = float(parts[3])
+                n = Node3D(id=nid, x=x, y=y, z=z)
+                nodes.append(n)
+                node_lookup[nid] = n
                 continue
 
             if in_elem and elem_abaqus_type is not None:
                 parts = split_nums(line)
                 if len(parts) < 9:
                     continue
-
                 eid = int(parts[0])
                 nids = [int(p) for p in parts[1:9]]
 
-                props: Dict[str, object] = {
+                props: Dict[str, any] = {
                     "material_id": int(material_id),
                 }
 
-                if materials_dict:
-                    row = materials_dict[int(material_id)]
+                if materials:
+                    row = materials[int(material_id)]
                     E = _get_float_from_material(row, ["E", "young", "youngs_modulus"])
                     nu = _get_float_from_material(row, ["nu", "poisson", "poisson_ratio"])
                     rho = _get_float_from_material(row, ["rho", "rou", "density"])
-
                     if E is None or nu is None:
                         raise KeyError(f"Material {material_id} missing E/nu: {row}")
-
                     props["E"] = E
                     props["nu"] = nu
                     if rho is not None:
@@ -988,6 +1207,100 @@ def read_hex8_3d_abaqus(
     if not nodes:
         raise ValueError(f"No *Node data found in {inp_path}")
     if not elements:
-        raise ValueError(f"No C3D8 Element data found in {inp_path}")
+        raise ValueError(f"No C3D8 *Element data found in {inp_path}")
 
     return HexMesh3D(nodes=nodes, elements=elements)
+
+
+def read_tet4_csv(
+    mesh_path: str,
+    material_path: Optional[str] = None,
+) -> TetMesh3D:
+    """Read a Tet4 mesh CSV with optional materials."""
+    import numpy as np
+
+    materials_dict: Dict[int, Dict[str, str]] = {}
+    if material_path is not None:
+        materials_dict = read_materials_as_dict(material_path)
+
+    nodes: List[Node3D] = []
+    elements: List[Element3D] = []
+
+    mode: Optional[str] = None
+
+    with open(mesh_path, "r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+
+        for line_no, row in enumerate(reader, start=1):
+            row = [col.strip() for col in row]
+
+            if not row or all(col == "" for col in row):
+                continue
+
+            if row[0].startswith("#"):
+                continue
+
+            if row[0] == "node_id":
+                mode = "nodes"
+                continue
+
+            if row[0] == "elem_id":
+                mode = "elements"
+                continue
+
+            if mode == "nodes":
+                if len(row) < 4:
+                    raise ValueError(f"第 {line_no} 行节点格式错误: {row!r}")
+                nid = int(row[0])
+                x = float(row[1])
+                y = float(row[2])
+                z = float(row[3])
+                nodes.append(Node3D(id=nid, x=x, y=y, z=z))
+
+            elif mode == "elements":
+                if len(row) < 6:
+                    raise ValueError(f"第 {line_no} 行 Tet4 单元格式错误: {row!r}")
+                eid = int(row[0])
+                n1 = int(row[1])
+                n2 = int(row[2])
+                n3 = int(row[3])
+                n4 = int(row[4])
+                mid = int(row[5])
+
+                props: Dict[str, object] = {
+                    "material_id": mid,
+                }
+
+                if materials_dict:
+                    mat_row = materials_dict.get(mid)
+                    if mat_row is not None:
+                        raw_E = _get_float_from_material(mat_row, ["E"])
+                        raw_nu = _get_float_from_material(mat_row, ["nu", "poisson"])
+                        raw_rho = _get_float_from_material(mat_row, ["rho"])
+                        if raw_E is not None:
+                            props["E"] = raw_E
+                        if raw_nu is not None:
+                            props["nu"] = raw_nu
+                        if raw_rho is not None:
+                            props["rho"] = raw_rho
+
+                elements.append(
+                    Element3D(
+                        id=eid,
+                        node_ids=[n1, n2, n3, n4],
+                        type="Tet4",
+                        props=props,
+                    )
+                )
+
+            else:
+                raise ValueError(
+                    f"在未识别出表头前遇到数据行（第 {line_no} 行）: {row!r}"
+                )
+
+    if not nodes:
+        raise ValueError("mesh csv 中没有读到节点")
+    if not elements:
+        raise ValueError("mesh csv 中没有读到单元")
+
+    return TetMesh3D(nodes=nodes, elements=elements)
