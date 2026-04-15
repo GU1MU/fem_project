@@ -880,3 +880,114 @@ def read_hex8_csv(
         raise ValueError("mesh csv 中没有读到单元")
 
     return HexMesh3D(nodes=nodes, elements=elements)
+
+def read_hex8_3d_abaqus(
+    inp_path: str,
+    material_id: int,
+    material_path: Optional[str] = None,
+) -> HexMesh3D:
+    """Read Hex8 3D mesh (C3D8) from Abaqus INP file."""
+    materials_dict: Dict[int, Dict[str, str]] = {}
+    if material_path is not None:
+        materials_dict = read_materials_as_dict(material_path)
+        if material_id not in materials_dict:
+            raise KeyError(f"material_id={material_id} not found in {material_path}")
+
+    nodes: List[Node3D] = []
+    elements: List[Element3D] = []
+    node_lookup: Dict[int, Node3D] = {}
+
+    in_node = False
+    in_elem = False
+    elem_abaqus_type: Optional[str] = None
+
+    def split_nums(line: str) -> List[str]:
+        parts = [p.strip() for p in line.strip().split(",")]
+        return [p for p in parts if p]
+
+    with open(inp_path, "r", encoding="utf-8", errors="ignore") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("**"):
+                continue
+
+            if line.startswith("*"):
+                kw = line.strip().upper()
+                in_node = kw.startswith("*NODE")
+
+                if kw.startswith("*ELEMENT"):
+                    in_elem = False
+                    elem_abaqus_type = None
+
+                    parts = [p.strip() for p in kw.split(",")]
+                    et = None
+                    for p in parts:
+                        if p.startswith("TYPE="):
+                            et = p.split("=", 1)[1].strip()
+                            break
+
+                    if et in ("C3D8"):
+                        in_elem = True
+                        elem_abaqus_type = et
+                else:
+                    in_elem = False
+                    elem_abaqus_type = None
+
+                continue
+
+            if in_node:
+                parts = split_nums(line)
+                if len(parts) < 4:
+                    continue
+
+                nid = int(parts[0])
+                x = float(parts[1])
+                y = float(parts[2])
+                z = float(parts[3])
+
+                node = Node3D(id=nid, x=x, y=y, z=z)
+                nodes.append(node)
+                node_lookup[nid] = node
+                continue
+
+            if in_elem and elem_abaqus_type is not None:
+                parts = split_nums(line)
+                if len(parts) < 9:
+                    continue
+
+                eid = int(parts[0])
+                nids = [int(p) for p in parts[1:9]]
+
+                props: Dict[str, object] = {
+                    "material_id": int(material_id),
+                }
+
+                if materials_dict:
+                    row = materials_dict[int(material_id)]
+                    E = _get_float_from_material(row, ["E", "young", "youngs_modulus"])
+                    nu = _get_float_from_material(row, ["nu", "poisson", "poisson_ratio"])
+                    rho = _get_float_from_material(row, ["rho", "rou", "density"])
+
+                    if E is None or nu is None:
+                        raise KeyError(f"Material {material_id} missing E/nu: {row}")
+
+                    props["E"] = E
+                    props["nu"] = nu
+                    if rho is not None:
+                        props["rho"] = rho
+
+                elements.append(
+                    Element3D(
+                        id=eid,
+                        node_ids=nids,
+                        type="Hex8",
+                        props=props,
+                    )
+                )
+
+    if not nodes:
+        raise ValueError(f"No *Node data found in {inp_path}")
+    if not elements:
+        raise ValueError(f"No C3D8 Element data found in {inp_path}")
+
+    return HexMesh3D(nodes=nodes, elements=elements)

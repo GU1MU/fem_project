@@ -20,6 +20,8 @@ def export_nodal_displacements_csv(
     if component_names is None:
         if dofs_per_node == 2:
             component_names = ["ux", "uy"]
+        elif dofs_per_node == 3:
+            component_names = ["ux", "uy", "uz"]
         else:
             component_names = [f"u{c}" for c in range(dofs_per_node)]
     else:
@@ -737,6 +739,13 @@ def _build_vtk_cells(mesh, node_id_to_pt_idx: Dict[int, int]):
             pt_ids = [node_id_to_pt_idx[nid] for nid in elem.node_ids]
             vtk_conn = [8] + pt_ids
             vtk_type = 23
+        
+        elif "hex8" in etype:
+            if len(elem.node_ids) != 8:
+                continue
+            pt_ids = [node_id_to_pt_idx[nid] for nid in elem.node_ids]
+            vtk_conn = [8] + pt_ids
+            vtk_type = 12
 
         else:
             continue
@@ -1624,3 +1633,171 @@ def export_hex8_nodal_stress_csv(
 
             writer.writerow([nid, node.x, node.y, node.z, sig_x, sig_y, sig_z, tau_xy, tau_yz, tau_zx, mises])
 
+
+def _write_vtk_3d(
+    mesh,
+    cells,
+    cell_types,
+    elems_for_cell,
+    node_disp,
+    field_data,
+    vtk_path: str,
+    nodal_fields: Optional[Dict[str, Dict[int, float]]] = None,
+):
+    """Write 3D VTK file from node displacements and cell fields."""
+    nodes: List[Node3D] = mesh.nodes
+    num_points = len(nodes)
+    num_cells = len(cells)
+
+    cell_field_arrays: Dict[str, np.ndarray] = {}
+    for field_name, field_dict in field_data.items():
+        arr = np.zeros(num_cells, dtype=float)
+        for cidx, elem in enumerate(elems_for_cell):
+            eid = elem.id
+            arr[cidx] = float(field_dict.get(eid, 0.0))
+        cell_field_arrays[field_name] = arr
+
+    with open(vtk_path, "w", encoding="utf-8") as f:
+        f.write("# vtk DataFile Version 3.0\n")
+        f.write("FEM 3D results from CSV\n")
+        f.write("ASCII\n")
+        f.write("DATASET UNSTRUCTURED_GRID\n")
+
+        f.write(f"POINTS {num_points} float\n")
+        for node in nodes:
+            f.write(f"{node.x} {node.y} {node.z}\n")
+
+        total_ints = sum(len(conn) for conn in cells)
+        f.write(f"\nCELLS {num_cells} {total_ints}\n")
+        for conn in cells:
+            f.write(" ".join(str(v) for v in conn) + "\n")
+
+        f.write(f"\nCELL_TYPES {num_cells}\n")
+        for ct in cell_types:
+            f.write(f"{ct}\n")
+
+        f.write(f"\nPOINT_DATA {num_points}\n")
+        f.write("VECTORS displacement float\n")
+        for node in nodes:
+            disp = node_disp.get(node.id, {"ux": 0.0, "uy": 0.0, "uz": 0.0})
+            f.write(f"{disp['ux']} {disp['uy']} {disp['uz']}\n")
+
+        if nodal_fields:
+            for field_name, field_dict in nodal_fields.items():
+                f.write(f"\nSCALARS {field_name} float 1\n")
+                f.write("LOOKUP_TABLE default\n")
+                for node in nodes:
+                    f.write(f"{float(field_dict.get(node.id, 0.0))}\n")
+
+        f.write(f"\nCELL_DATA {num_cells}\n")
+        for field_name, arr in cell_field_arrays.items():
+            f.write(f"SCALARS {field_name} float 1\n")
+            f.write("LOOKUP_TABLE default\n")
+            for v in arr:
+                f.write(f"{float(v)}\n")
+            f.write("\n")
+        
+def export_vtk_from_csv_3d(
+    mesh: HexMesh3D,
+    disp_csv_path: str,
+    elem_csv_path: Optional[str],
+    vtk_path: str,
+    nodal_stress_csv_path: Optional[str] = None,
+) -> None:
+    """Convert 3D displacement + Hex8 stress CSV files to VTK."""
+    node_disp: Dict[int, Dict[str, float]] = {}
+
+    with open(disp_csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        required_cols = {"node_id", "ux", "uy", "uz"}
+        if not required_cols.issubset(reader.fieldnames or []):
+            raise ValueError(
+                f"3D disp CSV requires columns {required_cols}, got {reader.fieldnames}"
+            )
+
+        for row in reader:
+            nid = int(row["node_id"])
+            ux = float(row["ux"])
+            uy = float(row["uy"])
+            uz = float(row["uz"])
+            node_disp[nid] = {"ux": ux, "uy": uy, "uz": uz}
+
+    for node in mesh.nodes:
+        if node.id not in node_disp:
+            node_disp[node.id] = {"ux": 0.0, "uy": 0.0, "uz": 0.0}
+
+    nodal_fields: Dict[str, Dict[int, float]] = {}
+    if nodal_stress_csv_path is not None:
+        with open(nodal_stress_csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            if "node_id" not in (reader.fieldnames or []):
+                raise ValueError(
+                    f"3D nodal stress CSV requires 'node_id', got {reader.fieldnames}"
+                )
+
+            ignore_exact = {"node_id", "x", "y", "z"}
+            field_names = [
+                name for name in (reader.fieldnames or [])
+                if name not in ignore_exact
+            ]
+
+            for name in field_names:
+                nodal_fields[name] = {}
+
+            for row in reader:
+                nid = int(row["node_id"])
+                for name in field_names:
+                    val_str = row.get(name, "")
+                    if val_str == "":
+                        continue
+                    try:
+                        val = float(val_str)
+                    except ValueError:
+                        val = 0.0
+                    nodal_fields[name][nid] = val
+
+    field_data: Dict[str, Dict[int, float]] = {}
+    if elem_csv_path is not None:
+        with open(elem_csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            if "elem_id" not in (reader.fieldnames or []):
+                raise ValueError(
+                    f"3D element stress CSV requires 'elem_id', got {reader.fieldnames}"
+                )
+
+            ignore_exact = {"elem_id"}
+            field_names = [
+                name for name in (reader.fieldnames or [])
+                if name not in ignore_exact
+            ]
+
+            for name in field_names:
+                field_data[name] = {}
+
+            for row in reader:
+                eid = int(row["elem_id"])
+                for name in field_names:
+                    val_str = row.get(name, "")
+                    if val_str == "":
+                        continue
+                    try:
+                        val = float(val_str)
+                    except ValueError:
+                        val = 0.0
+                    field_data[name][eid] = val
+
+    node_id_to_pt_idx: Dict[int, int] = {node.id: i for i, node in enumerate(mesh.nodes)}
+    cells, cell_types, elems_for_cell = _build_vtk_cells(mesh, node_id_to_pt_idx)
+    if not cells:
+        raise ValueError("export_vtk_from_csv_3d: no supported elements")
+
+    _write_vtk_3d(
+        mesh,
+        cells,
+        cell_types,
+        elems_for_cell,
+        node_disp,
+        field_data,
+        vtk_path,
+        nodal_fields,
+    )

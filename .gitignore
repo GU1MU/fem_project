@@ -2,3 +2,6 @@ results/
 __pycache__/
 *.egg-info/
 .vscode/
+.env
+ex.py
+*.txt
