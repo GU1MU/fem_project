@@ -7,3 +7,4 @@ ex.py
 *.txt
 tests/
 superpowers/
+.worktrees/
