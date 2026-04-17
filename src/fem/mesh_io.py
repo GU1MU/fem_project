@@ -43,9 +43,47 @@ class InpSection:
 
 
 @dataclass(frozen=True)
+class InpBoundarySpec:
+    target: str
+    boundary_type: Optional[str] = None
+    first_dof: Optional[int] = None
+    last_dof: Optional[int] = None
+    value: Optional[float] = None
+    parameters: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class InpCloadSpec:
+    target: str
+    dof: int
+    magnitude: float
+    parameters: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class InpDloadSpec:
+    target: str
+    load_type: str
+    magnitude: float
+    components: Tuple[float, ...] = ()
+    parameters: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class InpUnhandledStepSpec:
+    keyword: str
+    parameters: Dict[str, str]
+    data_lines: List[Tuple[str, ...]] = field(default_factory=list)
+
+
+@dataclass
 class InpStaticStep:
     name: Optional[str]
-    static_parameters: Tuple[float, ...]
+    static_parameters: Tuple[float, ...] = ()
+    boundary_specs: List[InpBoundarySpec] = field(default_factory=list)
+    cload_specs: List[InpCloadSpec] = field(default_factory=list)
+    dload_specs: List[InpDloadSpec] = field(default_factory=list)
+    unhandled_specs: List[InpUnhandledStepSpec] = field(default_factory=list)
 
 
 @dataclass
@@ -133,6 +171,83 @@ def _parse_set_values(parts: List[str], block_name: str, is_generate: bool) -> L
     return [int(value) for value in normalized_parts]
 
 
+def _parse_boundary_spec(parts: List[str], parameters: Dict[str, str]) -> InpBoundarySpec:
+    fields = _trim_trailing_empty_fields(parts)
+    fields = _require_non_empty_fields(fields, "*Boundary", 2)
+
+    target = fields[0]
+    second_field = fields[1]
+
+    try:
+        first_dof = int(second_field)
+    except ValueError:
+        if len(fields) != 2:
+            raise ValueError(f"Malformed *Boundary data: {parts!r}")
+        return InpBoundarySpec(
+            target=target,
+            parameters=dict(parameters),
+            boundary_type=second_field.upper(),
+        )
+
+    last_dof = first_dof
+    value: Optional[float] = None
+
+    if len(fields) >= 3:
+        try:
+            last_dof = int(fields[2])
+            if len(fields) >= 4:
+                value = float(fields[3])
+        except ValueError:
+            last_dof = first_dof
+            value = float(fields[2])
+            if len(fields) >= 4:
+                raise ValueError(f"Malformed *Boundary data: {parts!r}")
+
+    if len(fields) > 4:
+        raise ValueError(f"Malformed *Boundary data: {parts!r}")
+
+    return InpBoundarySpec(
+        target=target,
+        parameters=dict(parameters),
+        first_dof=first_dof,
+        last_dof=last_dof,
+        value=value,
+    )
+
+
+def _parse_cload_spec(parts: List[str], parameters: Dict[str, str]) -> InpCloadSpec:
+    fields = _require_non_empty_fields(
+        _trim_trailing_empty_fields(parts),
+        "*Cload",
+        3,
+    )
+    if len(fields) != 3:
+        raise ValueError(f"Malformed *Cload data: {parts!r}")
+
+    return InpCloadSpec(
+        target=fields[0],
+        parameters=dict(parameters),
+        dof=int(fields[1]),
+        magnitude=float(fields[2]),
+    )
+
+
+def _parse_dload_spec(parts: List[str], parameters: Dict[str, str]) -> InpDloadSpec:
+    fields = _require_non_empty_fields(
+        _trim_trailing_empty_fields(parts),
+        "*Dload",
+        3,
+    )
+
+    return InpDloadSpec(
+        target=fields[0],
+        parameters=dict(parameters),
+        load_type=fields[1].upper(),
+        magnitude=float(fields[2]),
+        components=tuple(float(value) for value in fields[3:]),
+    )
+
+
 def read_abaqus_inp_model(inp_path: str) -> AbaqusInpModel:
     """Read a low-level Abaqus INP model description."""
 
@@ -144,7 +259,11 @@ def read_abaqus_inp_model(inp_path: str) -> AbaqusInpModel:
     current_elset: Optional[str] = None
     current_material: Optional[InpMaterial] = None
     current_step_name: Optional[str] = None
+    current_step: Optional[InpStaticStep] = None
+    in_step = False
     current_section: Optional[InpSection] = None
+    current_unhandled_step_spec: Optional[InpUnhandledStepSpec] = None
+    current_block_params: Dict[str, str] = {}
     current_scope = "part"
     current_nset_generate = False
     current_elset_generate = False
@@ -158,6 +277,8 @@ def read_abaqus_inp_model(inp_path: str) -> AbaqusInpModel:
             if line.startswith("*"):
                 keyword, params = _parse_inp_keyword(line)
                 current_block = None
+                current_unhandled_step_spec = None
+                current_block_params = dict(params)
 
                 if keyword == "PART":
                     current_scope = "part"
@@ -215,8 +336,47 @@ def read_abaqus_inp_model(inp_path: str) -> AbaqusInpModel:
                     current_block = "density"
                 elif keyword == "STEP":
                     current_step_name = params.get("name")
+                    in_step = True
+                    current_step = None
                 elif keyword == "STATIC":
+                    if not in_step:
+                        raise ValueError("*Static outside *Step is invalid")
+                    if current_step is None:
+                        current_step = InpStaticStep(name=current_step_name)
+                        model.steps.append(current_step)
                     current_block = "static"
+                elif keyword == "BOUNDARY":
+                    if in_step and current_step is None:
+                        raise ValueError(
+                            "*Boundary encountered before supported step procedure"
+                        )
+                    if current_step is not None:
+                        current_block = "boundary"
+                elif keyword == "CLOAD":
+                    if in_step and current_step is None:
+                        raise ValueError(
+                            "*Cload encountered before supported step procedure"
+                        )
+                    if current_step is not None:
+                        current_block = "cload"
+                elif keyword == "DLOAD":
+                    if in_step and current_step is None:
+                        raise ValueError(
+                            "*Dload encountered before supported step procedure"
+                        )
+                    if current_step is not None:
+                        current_block = "dload"
+                elif keyword == "END STEP":
+                    current_step_name = None
+                    current_step = None
+                    in_step = False
+                elif keyword in {"SURFACE", "COUPLING", "KINEMATIC"} and current_step is not None:
+                    current_unhandled_step_spec = InpUnhandledStepSpec(
+                        keyword=keyword,
+                        parameters=dict(params),
+                    )
+                    current_step.unhandled_specs.append(current_unhandled_step_spec)
+                    current_block = "unhandled_step"
 
                 continue
 
@@ -263,15 +423,26 @@ def read_abaqus_inp_model(inp_path: str) -> AbaqusInpModel:
             elif current_block == "section" and current_section is not None:
                 section_parts = _trim_trailing_empty_fields(parts)
                 current_section.data.append(tuple(section_parts))
-            elif current_block == "static":
+            elif current_block == "static" and current_step is not None:
                 fields = [part for part in parts if part != ""]
-                model.steps.append(
-                    InpStaticStep(
-                        name=current_step_name,
-                        static_parameters=tuple(float(value) for value in fields),
-                    )
-                )
+                current_step.static_parameters = tuple(float(value) for value in fields)
                 current_block = None
+            elif current_block == "boundary" and current_step is not None:
+                current_step.boundary_specs.append(
+                    _parse_boundary_spec(parts, current_block_params)
+                )
+            elif current_block == "cload" and current_step is not None:
+                current_step.cload_specs.append(
+                    _parse_cload_spec(parts, current_block_params)
+                )
+            elif current_block == "dload" and current_step is not None:
+                current_step.dload_specs.append(
+                    _parse_dload_spec(parts, current_block_params)
+                )
+            elif current_block == "unhandled_step" and current_unhandled_step_spec is not None:
+                current_unhandled_step_spec.data_lines.append(
+                    tuple(_trim_trailing_empty_fields(parts))
+                )
 
     return model
 
