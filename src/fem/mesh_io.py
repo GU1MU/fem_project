@@ -1,9 +1,279 @@
 from __future__ import  annotations
 
 import csv
+from dataclasses import dataclass, field
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 from .mesh import Node2D, Element2D, TrussMesh2D, BeamMesh2D, PlaneMesh2D, Node3D, Element3D, HexMesh3D, TetMesh3D
+
+
+@dataclass(frozen=True)
+class InpNode:
+    id: int
+    coordinates: Tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class InpElement:
+    id: int
+    node_ids: Tuple[int, ...]
+
+
+@dataclass
+class InpElementBlock:
+    element_type: str
+    elset: Optional[str] = None
+    elements: List[InpElement] = field(default_factory=list)
+
+
+@dataclass
+class InpMaterial:
+    name: str
+    elastic: Optional[Tuple[float, ...]] = None
+    density: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class InpSection:
+    section_type: str
+    elset: Optional[str]
+    material_name: Optional[str]
+    parameters: Dict[str, str]
+    data: List[Tuple[str, ...]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class InpStaticStep:
+    name: Optional[str]
+    static_parameters: Tuple[float, ...]
+
+
+@dataclass
+class AbaqusInpModel:
+    part_name: Optional[str] = None
+    instance_name: Optional[str] = None
+    nodes: Dict[int, InpNode] = field(default_factory=dict)
+    element_blocks: List[InpElementBlock] = field(default_factory=list)
+    nsets: Dict[str, Dict[str, List[int]]] = field(
+        default_factory=lambda: {"part": {}, "assembly": {}}
+    )
+    elsets: Dict[str, Dict[str, List[int]]] = field(
+        default_factory=lambda: {"part": {}, "assembly": {}}
+    )
+    materials: Dict[str, InpMaterial] = field(default_factory=dict)
+    sections: List[InpSection] = field(default_factory=list)
+    steps: List[InpStaticStep] = field(default_factory=list)
+
+
+def _parse_inp_keyword(line: str) -> Tuple[str, Dict[str, str]]:
+    parts = [part.strip() for part in line.strip()[1:].split(",")]
+    keyword = parts[0].upper()
+    params: Dict[str, str] = {}
+
+    for part in parts[1:]:
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        params[key.strip().lower()] = value.strip()
+
+    return keyword, params
+
+
+def _split_inp_data_line(line: str) -> List[str]:
+    return [part.strip() for part in line.split(",")]
+
+
+def _extend_named_id_set(
+    target: Dict[str, Dict[str, List[int]]],
+    scope: str,
+    name: Optional[str],
+    values: List[int],
+) -> None:
+    if name is None:
+        return
+    target.setdefault(scope, {}).setdefault(name, []).extend(values)
+
+
+def _require_non_empty_fields(
+    parts: List[str],
+    block_name: str,
+    expected_min_fields: int,
+) -> List[str]:
+    if len(parts) < expected_min_fields or any(part == "" for part in parts):
+        raise ValueError(f"Malformed {block_name} data: {parts!r}")
+    return parts
+
+
+def _trim_trailing_empty_fields(parts: List[str]) -> List[str]:
+    trimmed = list(parts)
+    while trimmed and trimmed[-1] == "":
+        trimmed.pop()
+    return trimmed
+
+
+def _parse_set_values(parts: List[str], block_name: str, is_generate: bool) -> List[int]:
+    normalized_parts = _trim_trailing_empty_fields(parts)
+
+    if is_generate:
+        fields = _require_non_empty_fields(normalized_parts, block_name, 3)
+        if len(fields) != 3:
+            raise ValueError(f"Malformed {block_name} generate data: {parts!r}")
+
+        start, end, increment = (int(value) for value in fields)
+        if increment == 0:
+            raise ValueError(f"Malformed {block_name} generate data: {parts!r}")
+        if (end - start) * increment < 0:
+            raise ValueError(f"Malformed {block_name} generate data: {parts!r}")
+
+        return list(range(start, end + (1 if increment > 0 else -1), increment))
+
+    if any(part == "" for part in normalized_parts):
+        raise ValueError(f"Malformed {block_name} data: {parts!r}")
+
+    return [int(value) for value in normalized_parts]
+
+
+def read_abaqus_inp_model(inp_path: str) -> AbaqusInpModel:
+    """Read a low-level Abaqus INP model description."""
+
+    model = AbaqusInpModel()
+
+    current_block: Optional[str] = None
+    current_element_block: Optional[InpElementBlock] = None
+    current_nset: Optional[str] = None
+    current_elset: Optional[str] = None
+    current_material: Optional[InpMaterial] = None
+    current_step_name: Optional[str] = None
+    current_section: Optional[InpSection] = None
+    current_scope = "part"
+    current_nset_generate = False
+    current_elset_generate = False
+
+    with open(inp_path, "r", encoding="utf-8", errors="ignore") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("**"):
+                continue
+
+            if line.startswith("*"):
+                keyword, params = _parse_inp_keyword(line)
+                current_block = None
+
+                if keyword == "PART":
+                    current_scope = "part"
+                    model.part_name = params.get("name")
+                elif keyword == "END PART":
+                    current_scope = "assembly"
+                    current_nset = None
+                    current_elset = None
+                elif keyword == "NODE":
+                    current_block = "node"
+                elif keyword == "ELEMENT":
+                    current_element_block = InpElementBlock(
+                        element_type=params.get("type", ""),
+                        elset=params.get("elset"),
+                    )
+                    model.element_blocks.append(current_element_block)
+                    current_block = "element"
+                elif keyword == "NSET":
+                    current_nset = params.get("nset")
+                    current_nset_generate = "generate" in params or any(
+                        part.strip().lower() == "generate"
+                        for part in line.strip()[1:].split(",")[1:]
+                    )
+                    current_block = "nset"
+                elif keyword == "ELSET":
+                    current_elset = params.get("elset")
+                    current_elset_generate = "generate" in params or any(
+                        part.strip().lower() == "generate"
+                        for part in line.strip()[1:].split(",")[1:]
+                    )
+                    current_block = "elset"
+                elif keyword == "SOLID SECTION":
+                    current_section = InpSection(
+                        section_type=keyword,
+                        elset=params.get("elset"),
+                        material_name=params.get("material"),
+                        parameters=dict(params),
+                    )
+                    model.sections.append(current_section)
+                    current_block = "section"
+                elif keyword == "INSTANCE":
+                    model.instance_name = params.get("name")
+                elif keyword == "ASSEMBLY":
+                    current_scope = "assembly"
+                elif keyword == "MATERIAL":
+                    material_name = params.get("name")
+                    if material_name is not None:
+                        current_material = model.materials.setdefault(
+                            material_name,
+                            InpMaterial(name=material_name),
+                        )
+                elif keyword == "ELASTIC":
+                    current_block = "elastic"
+                elif keyword == "DENSITY":
+                    current_block = "density"
+                elif keyword == "STEP":
+                    current_step_name = params.get("name")
+                elif keyword == "STATIC":
+                    current_block = "static"
+
+                continue
+
+            parts = _split_inp_data_line(line)
+            if not parts:
+                continue
+
+            if current_block == "node":
+                fields = _require_non_empty_fields(parts, "*Node", 2)
+                node_id = int(fields[0])
+                coordinates = tuple(float(value) for value in fields[1:])
+                model.nodes[node_id] = InpNode(id=node_id, coordinates=coordinates)
+            elif current_block == "element" and current_element_block is not None:
+                fields = _require_non_empty_fields(parts, "*Element", 2)
+                element_id = int(fields[0])
+                node_ids = tuple(int(value) for value in fields[1:])
+                current_element_block.elements.append(
+                    InpElement(id=element_id, node_ids=node_ids)
+                )
+            elif current_block == "nset":
+                _extend_named_id_set(
+                    model.nsets,
+                    current_scope,
+                    current_nset,
+                    _parse_set_values(parts, "*Nset", current_nset_generate),
+                )
+            elif current_block == "elset":
+                _extend_named_id_set(
+                    model.elsets,
+                    current_scope,
+                    current_elset,
+                    _parse_set_values(parts, "*Elset", current_elset_generate),
+                )
+            elif current_block == "elastic" and current_material is not None:
+                fields = [part for part in parts if part != ""]
+                current_material.elastic = tuple(float(value) for value in fields)
+            elif current_block == "density" and current_material is not None:
+                fields = _require_non_empty_fields(
+                    _trim_trailing_empty_fields(parts),
+                    "*Density",
+                    1,
+                )
+                current_material.density = float(fields[0])
+            elif current_block == "section" and current_section is not None:
+                section_parts = _trim_trailing_empty_fields(parts)
+                current_section.data.append(tuple(section_parts))
+            elif current_block == "static":
+                fields = [part for part in parts if part != ""]
+                model.steps.append(
+                    InpStaticStep(
+                        name=current_step_name,
+                        static_parameters=tuple(float(value) for value in fields),
+                    )
+                )
+                current_block = None
+
+    return model
 
 
 def read_materials_as_dict(path: str) -> Dict[int, Dict[str, str]]:
