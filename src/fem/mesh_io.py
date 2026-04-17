@@ -809,6 +809,7 @@ def read_tet10_3d_abaqus(
     in_node = False
     in_elem = False
     elem_abaqus_type: Optional[str] = None
+    pending_elem_parts: List[str] = []
 
     def split_nums(line: str) -> List[str]:
         parts = [p.strip() for p in line.strip().split(",")]
@@ -821,11 +822,20 @@ def read_tet10_3d_abaqus(
                 continue
 
             if line.startswith("*"):
+                if in_elem and pending_elem_parts:
+                    raise ValueError(
+                        f"Incomplete C3D10 connectivity record in {inp_path}: {pending_elem_parts}"
+                    )
                 kw = line.strip().upper()
+                if kw.startswith("*ASSEMBLY"):
+                    # This reader consumes the part-level Tet10 mesh only.
+                    # Assembly sections may contain reference points that reuse node ids.
+                    break
                 in_node = kw.startswith("*NODE")
                 if kw.startswith("*ELEMENT"):
                     in_elem = False
                     elem_abaqus_type = None
+                    pending_elem_parts = []
                     parts = [p.strip() for p in kw.split(",")]
                     et = None
                     for p in parts:
@@ -854,41 +864,65 @@ def read_tet10_3d_abaqus(
                 continue
 
             if in_elem and elem_abaqus_type is not None:
-                parts = split_nums(line)
-                if len(parts) < 11:
-                    continue
-                eid = int(parts[0])
-                nids = [int(p) for p in parts[1:11]]
+                pending_elem_parts.extend(split_nums(line))
+                while len(pending_elem_parts) >= 11:
+                    eid = int(pending_elem_parts[0])
+                    nids = [int(p) for p in pending_elem_parts[1:11]]
+                    pending_elem_parts = pending_elem_parts[11:]
 
-                props: Dict[str, any] = {
-                    "material_id": int(material_id),
-                }
+                    props: Dict[str, any] = {
+                        "material_id": int(material_id),
+                    }
 
-                if materials:
-                    row = materials[int(material_id)]
-                    E = _get_float_from_material(row, ["E", "young", "youngs_modulus"])
-                    nu = _get_float_from_material(row, ["nu", "poisson", "poisson_ratio"])
-                    rho = _get_float_from_material(row, ["rho", "rou", "density"])
-                    if E is None or nu is None:
-                        raise KeyError(f"Material {material_id} missing E/nu: {row}")
-                    props["E"] = E
-                    props["nu"] = nu
-                    if rho is not None:
-                        props["rho"] = rho
+                    if materials:
+                        row = materials[int(material_id)]
+                        E = _get_float_from_material(row, ["E", "young", "youngs_modulus"])
+                        nu = _get_float_from_material(row, ["nu", "poisson", "poisson_ratio"])
+                        rho = _get_float_from_material(row, ["rho", "rou", "density"])
+                        if E is None or nu is None:
+                            raise KeyError(f"Material {material_id} missing E/nu: {row}")
+                        props["E"] = E
+                        props["nu"] = nu
+                        if rho is not None:
+                            props["rho"] = rho
 
-                elements.append(
-                    Element3D(
-                        id=eid,
-                        node_ids=nids,
-                        type="Tet10",
-                        props=props,
+                    elements.append(
+                        Element3D(
+                            id=eid,
+                            node_ids=nids,
+                            type="Tet10",
+                            props=props,
+                        )
                     )
-                )
 
     if not nodes:
         raise ValueError(f"No *Node data found in {inp_path}")
+    if pending_elem_parts:
+        raise ValueError(
+            f"Incomplete C3D10 connectivity record at end of file {inp_path}: {pending_elem_parts}"
+        )
     if not elements:
         raise ValueError(f"No C3D10 *Element data found in {inp_path}")
+
+    from .stiffness import _tet10_gauss_points, _tet10_shape_funcs_grads
+
+    for e in elements:
+        coords = [node_lookup[nid] for nid in e.node_ids]
+        x = np.array([n.x for n in coords], dtype=float)
+        y = np.array([n.y for n in coords], dtype=float)
+        z = np.array([n.z for n in coords], dtype=float)
+
+        for xi, eta, zeta, _ in _tet10_gauss_points():
+            _, dN_dxi, dN_deta, dN_dzeta = _tet10_shape_funcs_grads(xi, eta, zeta)
+            J = np.array([
+                [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
+                [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],
+                [np.sum(dN_dzeta * x), np.sum(dN_dzeta * y), np.sum(dN_dzeta * z)],
+            ], dtype=float)
+            if np.linalg.det(J) <= 0.0:
+                raise ValueError(
+                    f"Element {e.id} has zero or negative Jacobian determinant. Check node ordering."
+                )
 
     return TetMesh3D(nodes=nodes, elements=elements)
 
@@ -1024,6 +1058,10 @@ def read_tet4_3d_abaqus(
 
             if line.startswith("*"):
                 kw = line.strip().upper()
+                if kw.startswith("*ASSEMBLY"):
+                    # This reader consumes the part-level Tet4 mesh only.
+                    # Assembly sections may contain reference points that reuse node ids.
+                    break
                 in_node = kw.startswith("*NODE")
                 if kw.startswith("*ELEMENT"):
                     in_elem = False

@@ -5,6 +5,55 @@ from typing import Dict, List, Tuple, Optional, Iterable, Any
 import numpy as np
 from scipy.sparse import csr_matrix
 
+_TET10_FACE_NODE_INDICES = [
+    [1, 2, 3, 5, 9, 8],
+    [0, 2, 3, 6, 9, 7],
+    [0, 1, 3, 4, 8, 7],
+    [0, 1, 2, 4, 5, 6],
+]
+
+_TRI6_GAUSS_POINTS = [
+    (1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0),
+    (2.0 / 3.0, 1.0 / 6.0, 1.0 / 6.0),
+    (1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0),
+]
+
+
+def _tri6_shape_funcs_and_grads(xi: float, eta: float):
+    """Return N, dN/dxi, dN/deta for a quadratic triangle (Tri6)."""
+    L1 = 1.0 - xi - eta
+    L2 = xi
+    L3 = eta
+
+    N = np.array([
+        L1 * (2.0 * L1 - 1.0),
+        L2 * (2.0 * L2 - 1.0),
+        L3 * (2.0 * L3 - 1.0),
+        4.0 * L1 * L2,
+        4.0 * L2 * L3,
+        4.0 * L3 * L1,
+    ], dtype=float)
+
+    dN_dxi = np.array([
+        -(4.0 * L1 - 1.0),
+        4.0 * L2 - 1.0,
+        0.0,
+        4.0 * (L1 - L2),
+        4.0 * L3,
+        -4.0 * L3,
+    ], dtype=float)
+
+    dN_deta = np.array([
+        -(4.0 * L1 - 1.0),
+        0.0,
+        4.0 * L3 - 1.0,
+        -4.0 * L2,
+        4.0 * L2,
+        4.0 * (L1 - L3),
+    ], dtype=float)
+
+    return N, dN_dxi, dN_deta
+
 
 @dataclass
 class BoundaryCondition2D:
@@ -237,7 +286,34 @@ def _add_element_body_force_consistent_3d(mesh: Any, elem: Any, node_lookup: Dic
         F[dofs] += fe
 
     elif "tet10" in et:
-        raise NotImplementedError("Tet10 consistent body-force assembly is not implemented")
+        from .stiffness import _tet10_gauss_points, _tet10_shape_funcs_grads
+
+        nids = elem.node_ids
+        nodes = [node_lookup[i] for i in nids]
+        x = np.array([n.x for n in nodes], dtype=float)
+        y = np.array([n.y for n in nodes], dtype=float)
+        z = np.array([n.z for n in nodes], dtype=float)
+
+        bvec = np.array([float(bx), float(by), float(bz)], dtype=float)
+        fe = np.zeros(30, dtype=float)  # 10 nodes * 3 DOFs
+
+        for xi, eta, zeta, w in _tet10_gauss_points():
+            N, dN_dxi, dN_deta, dN_dzeta = _tet10_shape_funcs_grads(xi, eta, zeta)
+            J = np.array([
+                [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
+                [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],
+                [np.sum(dN_dzeta * x), np.sum(dN_dzeta * y), np.sum(dN_dzeta * z)],
+            ], dtype=float)
+            detJ = float(np.linalg.det(J))
+            if detJ <= 0.0:
+                raise ValueError(f"Tet10 elem {elem.id} has non-positive Jacobian")
+
+            for i in range(10):
+                idx = 3 * i
+                fe[idx:idx + 3] += N[i] * bvec * (detJ * w)
+
+        dofs = mesh.element_dofs(elem)
+        F[dofs] += fe
 
     else:
         raise NotImplementedError(f"Unsupported 3D element type for body force assembly: {elem.type}")
@@ -346,7 +422,30 @@ def _add_element_face_traction_consistent_3d(mesh: Any, elem: Any, node_lookup: 
         F[dofs] += fe
 
     elif "tet10" in et:
-        raise NotImplementedError("Tet10 consistent face-traction assembly is not implemented")
+        if local_face < 0 or local_face >= 4:
+            raise ValueError(f"Invalid local_face {local_face}, must be 0-3 for Tet10")
+
+        face_local = _TET10_FACE_NODE_INDICES[local_face]
+        face_nodes = [node_lookup[elem.node_ids[i]] for i in face_local]
+        face_xyz = np.array([[n.x, n.y, n.z] for n in face_nodes], dtype=float)
+
+        tvec = np.array([float(tx), float(ty), float(tz)], dtype=float)
+        fe = np.zeros(30, dtype=float)  # 10 nodes * 3 DOFs
+
+        for xi, eta, w in _TRI6_GAUSS_POINTS:
+            N_face, dN_dxi, dN_deta = _tri6_shape_funcs_and_grads(xi, eta)
+            dx_dxi = dN_dxi @ face_xyz
+            dx_deta = dN_deta @ face_xyz
+            area_scale = float(np.linalg.norm(np.cross(dx_dxi, dx_deta)))
+            if area_scale <= 0.0:
+                raise ValueError(f"Tet10 elem {elem.id} face {local_face} has zero area")
+
+            for i, parent_local in enumerate(face_local):
+                idx = 3 * parent_local
+                fe[idx:idx + 3] += N_face[i] * tvec * (area_scale * w)
+
+        dofs = mesh.element_dofs(elem)
+        F[dofs] += fe
 
     else:
         raise NotImplementedError(f"Unsupported 3D element type for face traction assembly: {elem.type}")

@@ -6,3 +6,4 @@ __pycache__/
 ex.py
 *.txt
 tests/
+superpowers/
