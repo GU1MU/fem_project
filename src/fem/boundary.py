@@ -127,12 +127,12 @@ class BoundaryCondition3D:
 
     def add_nodal_force_dof(self, dof_id: int, value: float) -> None:
         """Add concentrated force on a dof."""
-        self.nodal_forces[dof_id] = float(value)
+        self.nodal_forces[dof_id] = self.nodal_forces.get(dof_id, 0.0) + float(value)
 
     def add_nodal_force(self, node_id: int, component: int, value: float, mesh: Any) -> None:
         """Add concentrated force on a node component."""
         dof_id = mesh.global_dof(node_id, component)
-        self.nodal_forces[dof_id] = float(value)
+        self.add_nodal_force_dof(dof_id, value)
 
     def add_body_force_element(self, elem_id: int, bx: float, by: float, bz: float) -> None:
         """Add constant body force on an element."""

@@ -3,7 +3,8 @@ from __future__ import  annotations
 import csv
 from dataclasses import dataclass, field
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+from .boundary import BoundaryCondition2D, BoundaryCondition3D
 from .mesh import Node2D, Element2D, TrussMesh2D, BeamMesh2D, PlaneMesh2D, Node3D, Element3D, HexMesh3D, TetMesh3D
 
 
@@ -101,6 +102,14 @@ class AbaqusInpModel:
     materials: Dict[str, InpMaterial] = field(default_factory=dict)
     sections: List[InpSection] = field(default_factory=list)
     steps: List[InpStaticStep] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class InpModelData:
+    model: AbaqusInpModel
+    mesh: Any
+    boundary: Any
+    step: InpStaticStep
 
 
 def _parse_inp_keyword(line: str) -> Tuple[str, Dict[str, str]]:
@@ -439,7 +448,50 @@ def _fix_and_validate_plane_element_orientation(
             raise ValueError(f"Element {element.id} has invalid quad orientation or zero area")
 
 
-def build_mesh_from_inp_model(model: AbaqusInpModel) -> PlaneMesh2D:
+def _build_solid_nodes_from_inp_model(
+    model: AbaqusInpModel,
+) -> Tuple[List[Node3D], Dict[int, Node3D]]:
+    nodes: List[Node3D] = []
+    node_lookup: Dict[int, Node3D] = {}
+
+    for node_id, node in sorted(model.nodes.items()):
+        if len(node.coordinates) < 3:
+            raise ValueError(f"Node {node_id} must have at least 3 coordinates")
+
+        runtime_node = Node3D(
+            id=node_id,
+            x=float(node.coordinates[0]),
+            y=float(node.coordinates[1]),
+            z=float(node.coordinates[2]),
+        )
+        nodes.append(runtime_node)
+        node_lookup[node_id] = runtime_node
+
+    return nodes, node_lookup
+
+
+def _validate_solid_element_connectivity(
+    family_name: str,
+    elements: List[Element3D],
+    node_lookup: Dict[int, Node3D],
+) -> None:
+    expected_counts = {
+        "solid_tet4": 4,
+        "solid_hex8": 8,
+    }
+    expected_count = expected_counts.get(family_name)
+
+    for element in elements:
+        if expected_count is not None and len(element.node_ids) != expected_count:
+            raise ValueError(
+                f"Element {element.id} must have exactly {expected_count} node IDs for {family_name}"
+            )
+        for node_id in element.node_ids:
+            if node_id not in node_lookup:
+                raise ValueError(f"Element {element.id} references missing node {node_id}")
+
+
+def build_mesh_from_inp_model(model: AbaqusInpModel) -> Any:
     """Convert a parsed Abaqus INP model into the current runtime mesh containers."""
 
     supported_families: List[str] = []
@@ -472,49 +524,358 @@ def build_mesh_from_inp_model(model: AbaqusInpModel) -> PlaneMesh2D:
         )
 
     selected_family = supported_families[0]
-    if selected_family not in {"plane_tri3", "plane_quad4", "plane_quad8"}:
-        raise ValueError(
-            "Only plane element families are currently supported by build_mesh_from_inp_model"
+    section_props_by_element_id = _resolve_inp_section_material_props(model)
+    if selected_family in {"plane_tri3", "plane_quad4", "plane_quad8"}:
+        nodes, node_lookup = _build_plane_nodes_from_inp_model(model)
+        if not nodes:
+            raise ValueError("No nodes found for mesh conversion")
+
+        elements: List[Element2D] = []
+        for block in model.element_blocks:
+            family_info = _classify_inp_element_family(block.element_type)
+            if family_info is None or family_info[0] != selected_family:
+                continue
+
+            _, runtime_element_type, plane_type = family_info
+            for inp_element in block.elements:
+                if inp_element.id not in section_props_by_element_id:
+                    raise ValueError(
+                        f"Element {inp_element.id} is missing section/material assignment"
+                    )
+
+                props = dict(section_props_by_element_id[inp_element.id])
+                if plane_type is not None:
+                    props["plane_type"] = plane_type
+
+                elements.append(
+                    Element2D(
+                        id=inp_element.id,
+                        node_ids=list(inp_element.node_ids),
+                        type=runtime_element_type,
+                        props=props,
+                    )
+                )
+
+        if not elements:
+            raise ValueError("No elements found for mesh conversion")
+
+        _validate_plane_element_connectivity(selected_family, elements, node_lookup)
+        _fix_and_validate_plane_element_orientation(selected_family, elements, node_lookup)
+
+        return PlaneMesh2D(nodes=nodes, elements=elements)
+
+    if selected_family in {"solid_tet4", "solid_hex8"}:
+        nodes, node_lookup = _build_solid_nodes_from_inp_model(model)
+        if not nodes:
+            raise ValueError("No nodes found for mesh conversion")
+
+        elements_3d: List[Element3D] = []
+        for block in model.element_blocks:
+            family_info = _classify_inp_element_family(block.element_type)
+            if family_info is None or family_info[0] != selected_family:
+                continue
+
+            _, runtime_element_type, _ = family_info
+            for inp_element in block.elements:
+                if inp_element.id not in section_props_by_element_id:
+                    raise ValueError(
+                        f"Element {inp_element.id} is missing section/material assignment"
+                    )
+
+                elements_3d.append(
+                    Element3D(
+                        id=inp_element.id,
+                        node_ids=list(inp_element.node_ids),
+                        type=runtime_element_type,
+                        props=dict(section_props_by_element_id[inp_element.id]),
+                    )
+                )
+
+        if not elements_3d:
+            raise ValueError("No elements found for mesh conversion")
+
+        _validate_solid_element_connectivity(selected_family, elements_3d, node_lookup)
+
+        if selected_family == "solid_tet4":
+            return TetMesh3D(nodes=nodes, elements=elements_3d)
+        return HexMesh3D(nodes=nodes, elements=elements_3d)
+
+    raise ValueError(
+        "Unsupported Abaqus element family for mesh conversion: "
+        + selected_family
+    )
+
+
+def _select_inp_step(
+    model: AbaqusInpModel,
+    *,
+    step_name: Optional[str] = None,
+    step_index: int = 0,
+) -> InpStaticStep:
+    if not model.steps:
+        raise ValueError("No supported Abaqus *Step data found for boundary conversion")
+
+    if step_name is not None:
+        for step in model.steps:
+            if step.name == step_name:
+                return step
+        raise KeyError(f"Abaqus step '{step_name}' not found")
+
+    if step_index < 0 or step_index >= len(model.steps):
+        raise IndexError(
+            f"step_index {step_index} out of range for {len(model.steps)} parsed steps"
         )
 
-    section_props_by_element_id = _resolve_inp_section_material_props(model)
-    nodes, node_lookup = _build_plane_nodes_from_inp_model(model)
-    if not nodes:
-        raise ValueError("No nodes found for mesh conversion")
+    return model.steps[step_index]
 
-    elements: List[Element2D] = []
-    for block in model.element_blocks:
-        family_info = _classify_inp_element_family(block.element_type)
-        if family_info is None or family_info[0] != selected_family:
+
+def _deduplicate_preserving_order(values: List[int]) -> List[int]:
+    seen = set()
+    ordered: List[int] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
+def _resolve_inp_set_target(
+    target: str,
+    scoped_sets: Dict[str, Dict[str, List[int]]],
+    *,
+    part_name: Optional[str],
+    instance_name: Optional[str],
+) -> Optional[List[int]]:
+    if target in scoped_sets.get("assembly", {}):
+        return _deduplicate_preserving_order(scoped_sets["assembly"][target])
+
+    if target in scoped_sets.get("part", {}):
+        return _deduplicate_preserving_order(scoped_sets["part"][target])
+
+    if "." not in target:
+        return None
+
+    prefix, suffix = target.split(".", 1)
+    if suffix == "":
+        return None
+
+    if instance_name is not None and prefix == instance_name and suffix in scoped_sets.get("part", {}):
+        return _deduplicate_preserving_order(scoped_sets["part"][suffix])
+
+    if part_name is not None and prefix == part_name and suffix in scoped_sets.get("part", {}):
+        return _deduplicate_preserving_order(scoped_sets["part"][suffix])
+
+    return None
+
+
+def _resolve_inp_target_ids(
+    model: AbaqusInpModel,
+    target: str,
+    *,
+    scoped_sets: Dict[str, Dict[str, List[int]]],
+    valid_ids: List[int],
+    kind: str,
+) -> List[int]:
+    resolved = _resolve_inp_set_target(
+        target,
+        scoped_sets,
+        part_name=model.part_name,
+        instance_name=model.instance_name,
+    )
+    valid_id_set = set(valid_ids)
+
+    if resolved is None:
+        try:
+            resolved = [int(target)]
+        except ValueError as exc:
+            raise KeyError(f"Unable to resolve Abaqus {kind} target '{target}'") from exc
+
+    missing_ids = [value for value in resolved if value not in valid_id_set]
+    if missing_ids:
+        raise ValueError(
+            f"Abaqus {kind} target '{target}' resolved to IDs not present in mesh: {missing_ids}"
+        )
+
+    return resolved
+
+
+def _validate_abaqus_dof(dof: int, dofs_per_node: int, *, context: str) -> int:
+    component = dof - 1
+    if component < 0 or component >= dofs_per_node:
+        raise ValueError(
+            f"Unsupported Abaqus DOF {dof} for {context} on mesh with {dofs_per_node} DOFs per node"
+        )
+    return component
+
+
+def _resolve_gravity_components(
+    spec: InpDloadSpec,
+    *,
+    dimensions: int,
+) -> Tuple[float, ...]:
+    if len(spec.components) < dimensions:
+        raise ValueError(
+            f"Unsupported *Dload conversion for target '{spec.target}': "
+            f"GRAV requires at least {dimensions} direction components"
+        )
+
+    extra_components = spec.components[dimensions:]
+    if any(component != 0.0 for component in extra_components):
+        raise ValueError(
+            f"Unsupported *Dload conversion for target '{spec.target}': "
+            "out-of-plane GRAV components are not supported"
+        )
+
+    return tuple(spec.magnitude * component for component in spec.components[:dimensions])
+
+
+def build_boundary_from_inp_model(
+    model: AbaqusInpModel,
+    mesh: Any,
+    *,
+    step_name: Optional[str] = None,
+    step_index: int = 0,
+) -> Any:
+    step = _select_inp_step(model, step_name=step_name, step_index=step_index)
+
+    if isinstance(mesh, PlaneMesh2D):
+        boundary: Any = BoundaryCondition2D()
+        dimensions = 2
+        valid_node_ids = [node.id for node in mesh.nodes]
+        valid_element_ids = [element.id for element in mesh.elements]
+        element_lookup = {element.id: element for element in mesh.elements}
+    elif isinstance(mesh, (HexMesh3D, TetMesh3D)):
+        boundary = BoundaryCondition3D()
+        dimensions = 3
+        valid_node_ids = [node.id for node in mesh.nodes]
+        valid_element_ids = [element.id for element in mesh.elements]
+        element_lookup = {element.id: element for element in mesh.elements}
+    else:
+        raise TypeError(
+            "build_boundary_from_inp_model only supports PlaneMesh2D, TetMesh3D, or HexMesh3D"
+        )
+
+    for spec in step.boundary_specs:
+        node_ids = _resolve_inp_target_ids(
+            model,
+            spec.target,
+            scoped_sets=model.nsets,
+            valid_ids=valid_node_ids,
+            kind="node",
+        )
+
+        if spec.boundary_type is not None:
+            if spec.boundary_type != "ENCASTRE":
+                raise ValueError(
+                    f"Unsupported *Boundary conversion type '{spec.boundary_type}' for target '{spec.target}'"
+                )
+            for node_id in node_ids:
+                boundary.add_fixed_support(node_id, range(mesh.dofs_per_node), mesh)
             continue
 
-        _, runtime_element_type, plane_type = family_info
-        for inp_element in block.elements:
-            if inp_element.id not in section_props_by_element_id:
-                raise ValueError(
-                    f"Element {inp_element.id} is missing section/material assignment"
-                )
-
-            props = dict(section_props_by_element_id[inp_element.id])
-            if plane_type is not None:
-                props["plane_type"] = plane_type
-
-            elements.append(
-                Element2D(
-                    id=inp_element.id,
-                    node_ids=list(inp_element.node_ids),
-                    type=runtime_element_type,
-                    props=props,
-                )
+        if spec.first_dof is None or spec.last_dof is None:
+            raise ValueError(
+                f"Unsupported *Boundary conversion for target '{spec.target}': missing DOF range"
+            )
+        if spec.first_dof > spec.last_dof:
+            raise ValueError(
+                f"Unsupported *Boundary conversion for target '{spec.target}': "
+                f"first_dof > last_dof ({spec.first_dof} > {spec.last_dof})"
             )
 
-    if not elements:
-        raise ValueError("No elements found for mesh conversion")
+        value = 0.0 if spec.value is None else float(spec.value)
+        for abaqus_dof in range(spec.first_dof, spec.last_dof + 1):
+            if abaqus_dof > mesh.dofs_per_node:
+                if value != 0.0:
+                    raise ValueError(
+                        f"Unsupported Abaqus DOF {abaqus_dof} for *Boundary target "
+                        f"'{spec.target}' on mesh with {mesh.dofs_per_node} DOFs per node"
+                    )
+                continue
+            component = _validate_abaqus_dof(
+                abaqus_dof,
+                mesh.dofs_per_node,
+                context=f"*Boundary target '{spec.target}'",
+            )
+            for node_id in node_ids:
+                boundary.add_displacement(node_id, component, value, mesh)
 
-    _validate_plane_element_connectivity(selected_family, elements, node_lookup)
-    _fix_and_validate_plane_element_orientation(selected_family, elements, node_lookup)
+    for spec in step.cload_specs:
+        node_ids = _resolve_inp_target_ids(
+            model,
+            spec.target,
+            scoped_sets=model.nsets,
+            valid_ids=valid_node_ids,
+            kind="node",
+        )
+        component = _validate_abaqus_dof(
+            spec.dof,
+            mesh.dofs_per_node,
+            context=f"*Cload target '{spec.target}'",
+        )
+        for node_id in node_ids:
+            dof_id = mesh.global_dof(node_id, component)
+            boundary.nodal_forces[dof_id] = (
+                boundary.nodal_forces.get(dof_id, 0.0) + float(spec.magnitude)
+            )
 
-    return PlaneMesh2D(nodes=nodes, elements=elements)
+    for spec in step.dload_specs:
+        if spec.load_type != "GRAV":
+            raise ValueError(
+                f"Unsupported *Dload conversion for target '{spec.target}': {spec.load_type}"
+            )
+
+        element_ids = _resolve_inp_target_ids(
+            model,
+            spec.target,
+            scoped_sets=model.elsets,
+            valid_ids=valid_element_ids,
+            kind="element",
+        )
+        gravity_components = _resolve_gravity_components(spec, dimensions=dimensions)
+
+        for element_id in element_ids:
+            element = element_lookup[element_id]
+            density = element.props.get("rho")
+            if density is None:
+                raise KeyError(
+                    f"Element {element_id} is missing density required for GRAV conversion"
+                )
+
+            if dimensions == 2:
+                boundary.add_body_force_element(
+                    element_id,
+                    float(density) * gravity_components[0],
+                    float(density) * gravity_components[1],
+                )
+            else:
+                boundary.add_body_force_element(
+                    element_id,
+                    float(density) * gravity_components[0],
+                    float(density) * gravity_components[1],
+                    float(density) * gravity_components[2],
+                )
+
+    return boundary
+
+
+def read_abaqus_inp_as_model_data(
+    inp_path: str,
+    *,
+    step_name: Optional[str] = None,
+    step_index: int = 0,
+) -> InpModelData:
+    model = read_abaqus_inp_model(inp_path)
+    step = _select_inp_step(model, step_name=step_name, step_index=step_index)
+    mesh = build_mesh_from_inp_model(model)
+    boundary = build_boundary_from_inp_model(
+        model,
+        mesh,
+        step_name=step.name if step_name is None else step_name,
+        step_index=step_index,
+    )
+    return InpModelData(model=model, mesh=mesh, boundary=boundary, step=step)
 
 
 def read_abaqus_inp_model(inp_path: str) -> AbaqusInpModel:

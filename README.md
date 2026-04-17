@@ -92,3 +92,20 @@ python examples\cantilever_beam_hex8.py
 4. 用 `boundary` 定义约束和载荷
 5. 用 `solve` 求解位移
 6. 用 `post` 导出位移、应力和可视化结果
+## Reading Abaqus INP Model Data
+
+The repository still needs `PYTHONPATH=src` for direct imports.
+
+```powershell
+$env:PYTHONPATH = "src"
+python examples\plate_with_hole_quad4_from_inp_model.py
+```
+
+You can also read the parsed Abaqus model, converted mesh, converted boundary
+conditions, and selected static step directly:
+
+```python
+from fem.mesh_io import read_abaqus_inp_as_model_data
+
+model_data = read_abaqus_inp_as_model_data("examples/plate_with_hole_quad4.inp")
+```
