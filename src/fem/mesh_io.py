@@ -39,7 +39,7 @@ for _abaqus_model_type in (
     _abaqus_model_type.__module__ = __name__
 
 
-from .abaqus.parser import read_abaqus_inp_model
+from .abaqus.parser import read_abaqus_inp_model as _read_abaqus_inp_model_impl
 
 
 def _classify_inp_element_family(
@@ -661,6 +661,12 @@ def read_abaqus_inp_as_model_data(
         step_index=step_index,
     )
     return InpModelData(model=model, mesh=mesh, boundary=boundary, step=step)
+
+
+def read_abaqus_inp_model(inp_path: str) -> AbaqusInpModel:
+    """Public INP reader entry point (mesh_io-owned wrapper)."""
+
+    return _read_abaqus_inp_model_impl(inp_path)
 
 
 def read_materials_as_dict(path: str) -> Dict[int, Dict[str, str]]:

@@ -3,12 +3,24 @@ import tempfile
 import textwrap
 import unittest
 
-from fem.abaqus.parser import read_abaqus_inp_model as read_module_model
-from fem.mesh_io import read_abaqus_inp_model as read_mesh_io_model
+import fem.abaqus as abaqus
+import fem.abaqus.parser as abaqus_parser
+import fem.mesh_io as mesh_io
 
 
 class AbaqusModuleParserTests(unittest.TestCase):
-    def test_module_parser_matches_mesh_io_parser(self) -> None:
+    def test_mesh_io_is_public_boundary_and_delegates_to_internal_parser(self) -> None:
+        # Architecture: mesh_io is the public input boundary. The low-level
+        # implementation can live elsewhere but mesh_io should own the public symbol.
+        self.assertEqual(mesh_io.read_abaqus_inp_model.__module__, "fem.mesh_io")
+        self.assertEqual(
+            abaqus_parser.read_abaqus_inp_model.__module__, "fem.abaqus.parser"
+        )
+        self.assertIsNot(mesh_io.read_abaqus_inp_model, abaqus_parser.read_abaqus_inp_model)
+
+        # We should not advertise a second public-looking entry point.
+        self.assertFalse(hasattr(abaqus, "read_abaqus_inp_model"))
+
         inp_text = textwrap.dedent(
             """\
             *Part, name=PART-1
@@ -52,8 +64,8 @@ class AbaqusModuleParserTests(unittest.TestCase):
             inp_path = handle.name
 
         try:
-            module_model = read_module_model(inp_path)
-            mesh_io_model = read_mesh_io_model(inp_path)
+            mesh_io_model = mesh_io.read_abaqus_inp_model(inp_path)
+            module_model = abaqus_parser.read_abaqus_inp_model(inp_path)
         finally:
             os.remove(inp_path)
 
@@ -70,4 +82,3 @@ class AbaqusModuleParserTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

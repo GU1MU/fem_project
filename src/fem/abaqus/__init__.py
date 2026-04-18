@@ -12,7 +12,6 @@ from .model import (
     InpStaticStep,
     InpUnhandledStepSpec,
 )
-from .parser import read_abaqus_inp_model
 
 __all__ = [
     "AbaqusInpModel",
@@ -27,5 +26,4 @@ __all__ = [
     "InpSection",
     "InpStaticStep",
     "InpUnhandledStepSpec",
-    "read_abaqus_inp_model",
 ]
