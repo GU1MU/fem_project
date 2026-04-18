@@ -439,7 +439,7 @@ def read_tri3_2d_abaqus(
 ) -> PlaneMesh2D:
     """Read a Tri3 plane mesh from Abaqus .inp files."""
 
-    return _abaqus_legacy.read_tri3_2d_abaqus(
+    return _abaqus_legacy._read_tri3_2d_abaqus(
         inp_path=inp_path,
         material_id=material_id,
         material_path=material_path,
@@ -461,7 +461,7 @@ def read_quad4_2d_abaqus(
 ) -> PlaneMesh2D:
     """Read Quad4 plane mesh (CPS4/CPE4) from Abaqus INP file."""
 
-    return _abaqus_legacy.read_quad4_2d_abaqus(
+    return _abaqus_legacy._read_quad4_2d_abaqus(
         inp_path=inp_path,
         material_id=material_id,
         material_path=material_path,
@@ -484,7 +484,7 @@ def read_quad8_2d_abaqus(
 ) -> PlaneMesh2D:
     """Read Quad8 plane mesh (CPS8/CPE8) from Abaqus INP file."""
 
-    return _abaqus_legacy.read_quad8_2d_abaqus(
+    return _abaqus_legacy._read_quad8_2d_abaqus(
         inp_path=inp_path,
         material_id=material_id,
         material_path=material_path,
@@ -508,7 +508,7 @@ def read_tet10_3d_abaqus(
                        8=edge(1,3), 9=edge(2,4), 10=edge(2,3)
     """
 
-    return _abaqus_legacy.read_tet10_3d_abaqus(
+    return _abaqus_legacy._read_tet10_3d_abaqus(
         inp_path=inp_path,
         material_id=material_id,
         material_path=material_path,
@@ -622,7 +622,7 @@ def read_tet4_3d_abaqus(
 ) -> TetMesh3D:
     """Read a Tet4 3D mesh from Abaqus .inp file (C3D4 / C3D4T elements)."""
 
-    return _abaqus_legacy.read_tet4_3d_abaqus(
+    return _abaqus_legacy._read_tet4_3d_abaqus(
         inp_path=inp_path,
         material_id=material_id,
         material_path=material_path,
@@ -637,7 +637,7 @@ def read_hex8_3d_abaqus(
 ) -> HexMesh3D:
     """Read a Hex8 3D mesh from Abaqus .inp file (C3D8 elements)."""
 
-    return _abaqus_legacy.read_hex8_3d_abaqus(
+    return _abaqus_legacy._read_hex8_3d_abaqus(
         inp_path=inp_path,
         material_id=material_id,
         material_path=material_path,

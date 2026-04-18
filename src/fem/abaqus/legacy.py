@@ -18,7 +18,7 @@ MaterialDictReader = Callable[[str], Dict[int, Dict[str, str]]]
 MaterialFloatReader = Callable[[Dict[str, str], List[str]], Optional[float]]
 
 
-def read_tri3_2d_abaqus(
+def _read_tri3_2d_abaqus(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
@@ -158,7 +158,7 @@ def read_tri3_2d_abaqus(
     return PlaneMesh2D(nodes=nodes, elements=elements)
 
 
-def read_quad4_2d_abaqus(
+def _read_quad4_2d_abaqus(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
@@ -340,7 +340,7 @@ def read_quad4_2d_abaqus(
     return PlaneMesh2D(nodes=nodes, elements=elements)
 
 
-def read_quad8_2d_abaqus(
+def _read_quad8_2d_abaqus(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
@@ -491,7 +491,7 @@ def read_quad8_2d_abaqus(
     return PlaneMesh2D(nodes=nodes, elements=elements)
 
 
-def read_tet10_3d_abaqus(
+def _read_tet10_3d_abaqus(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
@@ -639,7 +639,7 @@ def read_tet10_3d_abaqus(
     return TetMesh3D(nodes=nodes, elements=elements)
 
 
-def read_tet4_3d_abaqus(
+def _read_tet4_3d_abaqus(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
@@ -760,7 +760,7 @@ def read_tet4_3d_abaqus(
     return TetMesh3D(nodes=nodes, elements=elements)
 
 
-def read_hex8_3d_abaqus(
+def _read_hex8_3d_abaqus(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
