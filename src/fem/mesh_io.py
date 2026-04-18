@@ -19,9 +19,9 @@ from .abaqus import (
     InpUnhandledStepSpec,
 )
 from .abaqus.convert import (
-    build_boundary_from_inp_model as _build_boundary_from_inp_model_impl,
-    build_mesh_from_inp_model as _build_mesh_from_inp_model_impl,
-    read_abaqus_inp_as_model_data as _read_abaqus_inp_as_model_data_impl,
+    _build_boundary_from_inp_model as _build_boundary_from_inp_model_impl,
+    _build_mesh_from_inp_model as _build_mesh_from_inp_model_impl,
+    _read_abaqus_inp_as_model_data as _read_abaqus_inp_as_model_data_impl,
 )
 from .abaqus.parser import read_abaqus_inp_model as _read_abaqus_inp_model_impl
 from .mesh import (

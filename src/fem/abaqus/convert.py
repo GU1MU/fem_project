@@ -170,7 +170,7 @@ def _validate_solid_element_connectivity(
                 raise ValueError(f"Element {element.id} references missing node {node_id}")
 
 
-def build_mesh_from_inp_model(model: AbaqusInpModel) -> Any:
+def _build_mesh_from_inp_model(model: AbaqusInpModel) -> Any:
     supported_families: List[str] = []
     unsupported_types: List[str] = []
 
@@ -303,7 +303,7 @@ def _resolve_gravity_components(
     return tuple(spec.magnitude * component for component in spec.components[:dimensions])
 
 
-def build_boundary_from_inp_model(
+def _build_boundary_from_inp_model(
     model: AbaqusInpModel,
     mesh: Any,
     *,
@@ -326,7 +326,7 @@ def build_boundary_from_inp_model(
         element_lookup = {element.id: element for element in mesh.elements}
     else:
         raise TypeError(
-            "build_boundary_from_inp_model only supports PlaneMesh2D, TetMesh3D, or HexMesh3D"
+            "_build_boundary_from_inp_model only supports PlaneMesh2D, TetMesh3D, or HexMesh3D"
         )
 
     for spec in step.boundary_specs:
@@ -433,7 +433,7 @@ def build_boundary_from_inp_model(
     return boundary
 
 
-def read_abaqus_inp_as_model_data(
+def _read_abaqus_inp_as_model_data(
     inp_path: str,
     *,
     step_name: Optional[str] = None,
@@ -441,8 +441,8 @@ def read_abaqus_inp_as_model_data(
 ) -> InpModelData:
     model = read_abaqus_inp_model(inp_path)
     step = _select_inp_step(model, step_name=step_name, step_index=step_index)
-    mesh = build_mesh_from_inp_model(model)
-    boundary = build_boundary_from_inp_model(
+    mesh = _build_mesh_from_inp_model(model)
+    boundary = _build_boundary_from_inp_model(
         model,
         mesh,
         step_name=step.name if step_name is None else step_name,
