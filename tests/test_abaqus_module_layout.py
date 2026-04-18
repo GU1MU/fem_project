@@ -3,11 +3,32 @@ import tempfile
 import textwrap
 import unittest
 
+import fem.abaqus as abaqus
+import fem.mesh_io as mesh_io
 from fem.abaqus.model import AbaqusInpModel, InpModelData, InpNode
-from fem.mesh_io import read_abaqus_inp_as_model_data, read_abaqus_inp_model
+from fem.mesh_io import (
+    AbaqusInpModel as MeshIoAbaqusInpModel,
+    InpModelData as MeshIoInpModelData,
+    InpNode as MeshIoInpNode,
+    read_abaqus_inp_as_model_data,
+    read_abaqus_inp_model,
+)
 
 
 class AbaqusModuleLayoutTests(unittest.TestCase):
+    def test_package_and_mesh_io_re_exports_remain_available(self) -> None:
+        self.assertIs(abaqus.AbaqusInpModel, AbaqusInpModel)
+        self.assertIs(abaqus.InpModelData, InpModelData)
+        self.assertIs(abaqus.InpNode, InpNode)
+
+        self.assertIs(MeshIoAbaqusInpModel, AbaqusInpModel)
+        self.assertIs(MeshIoInpModelData, InpModelData)
+        self.assertIs(MeshIoInpNode, InpNode)
+
+        self.assertEqual(mesh_io.AbaqusInpModel.__module__, "fem.mesh_io")
+        self.assertEqual(mesh_io.InpModelData.__module__, "fem.mesh_io")
+        self.assertEqual(mesh_io.InpNode.__module__, "fem.mesh_io")
+
     def test_public_reader_returns_internal_module_dataclasses(self) -> None:
         inp_text = textwrap.dedent(
             """\
@@ -58,6 +79,9 @@ class AbaqusModuleLayoutTests(unittest.TestCase):
         self.assertIsInstance(model_data, InpModelData)
         self.assertIsInstance(model_data.model, AbaqusInpModel)
         self.assertIsInstance(model_data.model.nodes[1], InpNode)
+        self.assertEqual(type(model).__module__, "fem.mesh_io")
+        self.assertEqual(type(model_data).__module__, "fem.mesh_io")
+        self.assertEqual(type(model.nodes[1]).__module__, "fem.mesh_io")
 
 
 if __name__ == "__main__":

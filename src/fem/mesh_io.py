@@ -21,6 +21,24 @@ from .boundary import BoundaryCondition2D, BoundaryCondition3D
 from .mesh import Node2D, Element2D, TrussMesh2D, BeamMesh2D, PlaneMesh2D, Node3D, Element3D, HexMesh3D, TetMesh3D
 
 
+for _abaqus_model_type in (
+    AbaqusInpModel,
+    InpBoundarySpec,
+    InpCloadSpec,
+    InpDloadSpec,
+    InpElement,
+    InpElementBlock,
+    InpMaterial,
+    InpModelData,
+    InpNode,
+    InpSection,
+    InpStaticStep,
+    InpUnhandledStepSpec,
+):
+    # Keep the public import surface behavior anchored on fem.mesh_io.
+    _abaqus_model_type.__module__ = __name__
+
+
 def _parse_inp_keyword(line: str) -> Tuple[str, Dict[str, str]]:
     parts = [part.strip() for part in line.strip()[1:].split(",")]
     keyword = parts[0].upper()
