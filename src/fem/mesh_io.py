@@ -40,6 +40,11 @@ for _abaqus_model_type in (
 
 
 from .abaqus.parser import read_abaqus_inp_model as _read_abaqus_inp_model_impl
+from .abaqus.convert import (
+    build_boundary_from_inp_model as _build_boundary_from_inp_model_impl,
+    build_mesh_from_inp_model as _build_mesh_from_inp_model_impl,
+    read_abaqus_inp_as_model_data as _read_abaqus_inp_as_model_data_impl,
+)
 
 
 def _classify_inp_element_family(
@@ -667,6 +672,44 @@ def read_abaqus_inp_model(inp_path: str) -> AbaqusInpModel:
     """Public INP reader entry point (mesh_io-owned wrapper)."""
 
     return _read_abaqus_inp_model_impl(inp_path)
+
+
+def build_mesh_from_inp_model(model: AbaqusInpModel) -> Any:
+    """Public mesh_io wrapper for internal Abaqus mesh conversion."""
+
+    return _build_mesh_from_inp_model_impl(model)
+
+
+def build_boundary_from_inp_model(
+    model: AbaqusInpModel,
+    mesh: Any,
+    *,
+    step_name: Optional[str] = None,
+    step_index: int = 0,
+) -> Any:
+    """Public mesh_io wrapper for internal Abaqus boundary conversion."""
+
+    return _build_boundary_from_inp_model_impl(
+        model,
+        mesh,
+        step_name=step_name,
+        step_index=step_index,
+    )
+
+
+def read_abaqus_inp_as_model_data(
+    inp_path: str,
+    *,
+    step_name: Optional[str] = None,
+    step_index: int = 0,
+) -> InpModelData:
+    """Public mesh_io wrapper for internal Abaqus model-data conversion."""
+
+    return _read_abaqus_inp_as_model_data_impl(
+        inp_path,
+        step_name=step_name,
+        step_index=step_index,
+    )
 
 
 def read_materials_as_dict(path: str) -> Dict[int, Dict[str, str]]:
