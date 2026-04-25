@@ -20,8 +20,6 @@
   项目说明
 - `requirements.txt`
   Python 依赖
-- `.python-version`
-  本地开发时使用的 Python 版本标记
 
 ## 核心模块
 
