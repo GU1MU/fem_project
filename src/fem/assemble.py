@@ -1,6 +1,7 @@
 from typing import Callable, Iterable, Sequence, List, Tuple
 from scipy.sparse import coo_matrix
 import numpy as np
+from .elements import get_element_kernel
 
 def assemble_global_stiffness(
     num_dofs: int,
@@ -31,12 +32,29 @@ def assemble_global_stiffness(
     return K
 
 def assemble_global_stiffness_sparse(
-    num_dofs: int,
-    num_elements: int,
-    get_element_dofs: Callable[[int], Sequence[int]],
-    compute_element_stiffness: Callable[[int], np.ndarray],
+    num_dofs,
+    num_elements: int = None,
+    get_element_dofs: Callable[[int], Sequence[int]] = None,
+    compute_element_stiffness: Callable[[int], np.ndarray] = None,
 ) -> Tuple[List[int], List[int], List[float]]:
-    """Assemble a sparse global stiffness matrix."""
+    """Assemble a sparse global stiffness matrix from mesh or callbacks."""
+    if num_elements is None and get_element_dofs is None and compute_element_stiffness is None:
+        mesh = num_dofs
+        node_lookup = {node.id: node for node in mesh.nodes}
+        return assemble_global_stiffness_sparse(
+            num_dofs=mesh.num_dofs,
+            num_elements=len(mesh.elements),
+            get_element_dofs=lambda eid: mesh.element_dofs(mesh.elements[eid]),
+            compute_element_stiffness=lambda eid: get_element_kernel(mesh.elements[eid].type).stiffness(
+                mesh,
+                mesh.elements[eid],
+                node_lookup=node_lookup,
+            ),
+        )
+
+    if num_elements is None or get_element_dofs is None or compute_element_stiffness is None:
+        raise TypeError("sparse assembly requires either mesh or callback arguments")
+
     rows: List[int] = []
     cols: List[int] = []
     data: List[float] = []

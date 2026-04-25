@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional, Iterable, Any
 import numpy as np
 from scipy.sparse import csr_matrix
+from .elements import get_element_kernel
 
 _TET10_FACE_NODE_INDICES = [
     [1, 2, 3, 5, 9, 8],
@@ -214,45 +215,10 @@ def _add_element_body_force_consistent_3d(mesh: Any, elem: Any, node_lookup: Dic
     et = str(elem.type).lower()
 
     if "hex8" in et:
-        # For Hex8, use 2x2x2 Gauss integration for body force
-        nids = elem.node_ids
-        nodes = [node_lookup[i] for i in nids]
-
-        a = 1.0 / np.sqrt(3.0)
-        gps = [
-            (-a, -a, -a, 1.0), (a, -a, -a, 1.0), (a, a, -a, 1.0), (-a, a, -a, 1.0),
-            (-a, -a, a, 1.0), (a, -a, a, 1.0), (a, a, a, 1.0), (-a, a, a, 1.0)
-        ]
-
-        fe = np.zeros(24, dtype=float)  # 8 nodes * 3 DOFs
-        bvec = np.array([float(bx), float(by), float(bz)], dtype=float)
-
-        x = np.array([n.x for n in nodes], dtype=float)
-        y = np.array([n.y for n in nodes], dtype=float)
-        z = np.array([n.z for n in nodes], dtype=float)
-
-        for xi, eta, zeta, w in gps:
-            from .stiffness import _hex8_shape_funcs_grads
-            N, dN_dxi, dN_deta, dN_dzeta = _hex8_shape_funcs_grads(xi, eta, zeta)
-
-            J = np.array([
-                [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
-                [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],
-                [np.sum(dN_dzeta * x), np.sum(dN_dzeta * y), np.sum(dN_dzeta * z)],
-            ], dtype=float)
-            detJ = float(np.linalg.det(J))
-            if detJ <= 0.0:
-                raise ValueError(f"Hex8 elem {elem.id} has non-positive Jacobian")
-            vol_factor = detJ * w
-
-            for i in range(8):
-                idx = 3 * i
-                fe[idx] += N[i] * bvec[0] * vol_factor
-                fe[idx + 1] += N[i] * bvec[1] * vol_factor
-                fe[idx + 2] += N[i] * bvec[2] * vol_factor
-
-        dofs = mesh.element_dofs(elem)
-        F[dofs] += fe
+        kernel = get_element_kernel(elem.type)
+        F[mesh.element_dofs(elem)] += kernel.body_force(
+            mesh, elem, (float(bx), float(by), float(bz)), node_lookup
+        )
 
     elif "tet4" in et:
         # For Tet4, use single-point integration at centroid
@@ -326,61 +292,10 @@ def _add_element_face_traction_consistent_3d(mesh: Any, elem: Any, node_lookup: 
     et = str(elem.type).lower()
 
     if "hex8" in et:
-        # Hex8 faces: 0=bottom(z-), 1=top(z+), 2=front(y-), 3=back(y+), 4=left(x-), 5=right(x+)
-        face_nodes = [
-            [0, 3, 2, 1],  # bottom
-            [4, 5, 6, 7],  # top
-            [0, 1, 5, 4],  # front
-            [2, 3, 7, 6],  # back
-            [0, 4, 7, 3],  # left
-            [1, 2, 6, 5],  # right
-        ]
-
-        if local_face < 0 or local_face >= 6:
-            raise ValueError(f"Invalid local_face {local_face}, must be 0-5")
-
-        nids = [elem.node_ids[i] for i in face_nodes[local_face]]
-        nodes = [node_lookup[nid] for nid in nids]
-        xyz = np.array([[n.x, n.y, n.z] for n in nodes], dtype=float)
-
-        # Use 2x2 Gauss integration on face
-        a = 1.0 / np.sqrt(3.0)
-        gps = [(-a, -a, 1.0), (a, -a, 1.0), (a, a, 1.0), (-a, a, 1.0)]
-
-        fe = np.zeros(24, dtype=float)  # 8 nodes * 3 DOFs
-        tvec = np.array([float(tx), float(ty), float(tz)], dtype=float)
-
-        for xi, eta, w in gps:
-            N_face = np.array([
-                (1-xi)*(1-eta)/4,  # node 0 of face
-                (1+xi)*(1-eta)/4,  # node 1 of face
-                (1+xi)*(1+eta)/4,  # node 2 of face
-                (1-xi)*(1+eta)/4,  # node 3 of face
-            ], dtype=float)
-            dN_dxi = 0.25 * np.array(
-                [-(1.0 - eta), (1.0 - eta), (1.0 + eta), -(1.0 + eta)],
-                dtype=float,
-            )
-            dN_deta = 0.25 * np.array(
-                [-(1.0 - xi), -(1.0 + xi), (1.0 + xi), (1.0 - xi)],
-                dtype=float,
-            )
-            dx_dxi = dN_dxi @ xyz
-            dx_deta = dN_deta @ xyz
-            area_scale = float(np.linalg.norm(np.cross(dx_dxi, dx_deta)))
-            if area_scale <= 0.0:
-                raise ValueError(f"Hex8 elem {elem.id} face {local_face} has zero area")
-            area_factor = area_scale * w
-
-            for i in range(4):
-                global_node_idx = face_nodes[local_face][i]
-                idx = 3 * global_node_idx
-                fe[idx] += N_face[i] * tvec[0] * area_factor
-                fe[idx + 1] += N_face[i] * tvec[1] * area_factor
-                fe[idx + 2] += N_face[i] * tvec[2] * area_factor
-
-        dofs = mesh.element_dofs(elem)
-        F[dofs] += fe
+        kernel = get_element_kernel(elem.type)
+        F[mesh.element_dofs(elem)] += kernel.face_traction(
+            mesh, elem, int(local_face), (float(tx), float(ty), float(tz)), node_lookup
+        )
 
     elif "tet4" in et:
         # Tet4 faces: each face is a triangle, opposite to node i

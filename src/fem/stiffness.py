@@ -3,6 +3,10 @@ from __future__ import annotations
 from typing import Dict, Optional
 import numpy as np
 from .mesh import BeamMesh2D, TrussMesh2D, PlaneMesh2D, Element2D, Node2D, Mesh2DProtocol, HexMesh3D, Element3D, Node3D, Mesh3DProtocol
+from .elements import get_element_kernel
+from .elements.hex8 import hex8_shape_funcs_grads
+from .elements.quad4 import quad4_shape_grad_xi_eta
+from .materials import compute_3d_elastic_matrix, compute_plane_strain_matrix, compute_plane_stress_matrix
 
 def _build_node_lookup(mesh: Mesh2DProtocol) -> Dict[int, Node2D]:
     """Build Node2D lookup by node_id."""
@@ -135,26 +139,12 @@ def compute_beam2d_element_stiffness(
 
 def _compute_D_plane_stress(E: float, nu: float) -> np.ndarray:
     """Plane stress constitutive matrix D (3x3)."""
-    coef = E / (1.0 - nu ** 2)
-    D = coef * np.array([
-        [1.0,    nu,           0.0],
-        [nu,     1.0,          0.0],
-        [0.0,    0.0, (1.0 - nu) / 2.0],
-    ], dtype=float)
-    return D
+    return compute_plane_stress_matrix(E, nu)
 
 
 def _compute_D_plane_strain(E: float, nu: float) -> np.ndarray:
     """Plane strain constitutive matrix D (3x3)."""
-    lam = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
-    mu = E / (2.0 * (1.0 + nu))
-
-    D = np.array([
-        [lam + 2.0 * mu, lam,            0.0],
-        [lam,            lam + 2.0 * mu, 0.0],
-        [0.0,            0.0,            mu],
-    ], dtype=float)
-    return D
+    return compute_plane_strain_matrix(E, nu)
 
 
 def compute_tri3_plane_element_stiffness(
@@ -241,15 +231,7 @@ def compute_tri3_plane_element_stiffness(
 
 def _quad4_shape_grad_xi_eta(xi: float, eta: float) -> np.ndarray:
     """Return dN/dxi and dN/deta for bilinear Quad4."""
-    dN_dxi = np.array(
-        [-(1.0 - eta), (1.0 - eta), (1.0 + eta), -(1.0 + eta)],
-        dtype=float,
-    ) * 0.25
-    dN_deta = np.array(
-        [-(1.0 - xi), -(1.0 + xi), (1.0 + xi), (1.0 - xi)],
-        dtype=float,
-    ) * 0.25
-    return np.vstack([dN_dxi, dN_deta])  # (2,4)
+    return quad4_shape_grad_xi_eta(xi, eta)
 
 
 def compute_quad4_plane_element_stiffness(
@@ -259,133 +241,16 @@ def compute_quad4_plane_element_stiffness(
     gauss_order: int = 2,
 ) -> np.ndarray:
     """Compute isoparametric Quad4 plane element stiffness."""
-    if len(elem.node_ids) != 4:
-        raise ValueError(f"Quad4 needs 4 nodes, elem {elem.id} node_ids={elem.node_ids}")
-
-    try:
-        E = float(elem.props["E"])
-        nu = float(elem.props["nu"])
-        t = float(elem.props.get("thickness", 1.0))
-    except KeyError as e:
-        raise KeyError(f"elem {elem.id} missing '{e.args[0]}' in props={elem.props}")
-
-    pt = str(elem.props.get("plane_type", "stress")).lower()
-    if pt.startswith("stress"):
-        D = _compute_D_plane_stress(E, nu)
-    elif pt.startswith("strain"):
-        D = _compute_D_plane_strain(E, nu)
-    else:
-        raise ValueError(f"elem {elem.id} invalid plane_type={elem.props.get('plane_type')}")
-
-    if node_lookup is None:
-        node_lookup = _build_node_lookup(mesh)
-
-    nids = elem.node_ids
-    n1, n2, n3, n4 = (node_lookup[i] for i in nids)
-    x = np.array([n1.x, n2.x, n3.x, n4.x], dtype=float)
-    y = np.array([n1.y, n2.y, n3.y, n4.y], dtype=float)
-
-    if gauss_order == 1:
-        gps = [(0.0, 0.0, 4.0)]
-    elif gauss_order == 2:
-        a = 1.0 / np.sqrt(3.0)
-        gps = [(-a, -a, 1.0), (a, -a, 1.0), (a, a, 1.0), (-a, a, 1.0)]
-    else:
-        raise ValueError("gauss_order must be 1 or 2")
-
-    Ke = np.zeros((8, 8), dtype=float)
-
-    for xi, eta, w in gps:
-        dN = _quad4_shape_grad_xi_eta(xi, eta)  # (2,4)
-
-        J = np.array(
-            [[np.dot(dN[0], x), np.dot(dN[0], y)],
-             [np.dot(dN[1], x), np.dot(dN[1], y)]],
-            dtype=float,
-        )
-        detJ = float(np.linalg.det(J))
-        if detJ == 0.0:
-            raise ValueError(f"elem {elem.id} singular Jacobian")
-
-        invJ = np.linalg.inv(J)
-        dN_xy = invJ @ dN  # (2,4)
-
-        B = np.zeros((3, 8), dtype=float)
-        for a_i in range(4):
-            dN_dx = dN_xy[0, a_i]
-            dN_dy = dN_xy[1, a_i]
-            c = 2 * a_i
-            B[0, c] = dN_dx
-            B[1, c + 1] = dN_dy
-            B[2, c] = dN_dy
-            B[2, c + 1] = dN_dx
-
-        Ke += (B.T @ D @ B) * (t * detJ * w)
-
-    return Ke
+    return get_element_kernel(elem.type).stiffness(mesh, elem, node_lookup, gauss_order)
 
 
 def _compute_D_3d(E: float, nu: float) -> np.ndarray:
     """3D constitutive matrix D (6x6)."""
-    lam = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
-    mu = E / (2.0 * (1.0 + nu))
-
-    D = np.array([
-        [lam + 2.0 * mu, lam,            lam,            0.0, 0.0, 0.0],
-        [lam,            lam + 2.0 * mu, lam,            0.0, 0.0, 0.0],
-        [lam,            lam,            lam + 2.0 * mu, 0.0, 0.0, 0.0],
-        [0.0,            0.0,            0.0,            mu,  0.0, 0.0],
-        [0.0,            0.0,            0.0,            0.0, mu,  0.0],
-        [0.0,            0.0,            0.0,            0.0, 0.0, mu],
-    ], dtype=float)
-    return D
+    return compute_3d_elastic_matrix(E, nu)
 
 def _hex8_shape_funcs_grads(xi: float, eta: float, zeta: float):
     """Return N, dN/dxi, dN/deta, dN/dzeta for Hex8."""
-    N = np.zeros(8, dtype=float)
-    dN_dxi = np.zeros(8, dtype=float)
-    dN_deta = np.zeros(8, dtype=float)
-    dN_dzeta = np.zeros(8, dtype=float)
-
-    # Shape functions for Hex8
-    N[0] = (1.0 - xi) * (1.0 - eta) * (1.0 - zeta) / 8.0
-    N[1] = (1.0 + xi) * (1.0 - eta) * (1.0 - zeta) / 8.0
-    N[2] = (1.0 + xi) * (1.0 + eta) * (1.0 - zeta) / 8.0
-    N[3] = (1.0 - xi) * (1.0 + eta) * (1.0 - zeta) / 8.0
-    N[4] = (1.0 - xi) * (1.0 - eta) * (1.0 + zeta) / 8.0
-    N[5] = (1.0 + xi) * (1.0 - eta) * (1.0 + zeta) / 8.0
-    N[6] = (1.0 + xi) * (1.0 + eta) * (1.0 + zeta) / 8.0
-    N[7] = (1.0 - xi) * (1.0 + eta) * (1.0 + zeta) / 8.0
-
-    # Derivatives
-    dN_dxi[0] = -(1.0 - eta) * (1.0 - zeta) / 8.0
-    dN_dxi[1] = (1.0 - eta) * (1.0 - zeta) / 8.0
-    dN_dxi[2] = (1.0 + eta) * (1.0 - zeta) / 8.0
-    dN_dxi[3] = -(1.0 + eta) * (1.0 - zeta) / 8.0
-    dN_dxi[4] = -(1.0 - eta) * (1.0 + zeta) / 8.0
-    dN_dxi[5] = (1.0 - eta) * (1.0 + zeta) / 8.0
-    dN_dxi[6] = (1.0 + eta) * (1.0 + zeta) / 8.0
-    dN_dxi[7] = -(1.0 + eta) * (1.0 + zeta) / 8.0
-
-    dN_deta[0] = -(1.0 - xi) * (1.0 - zeta) / 8.0
-    dN_deta[1] = -(1.0 + xi) * (1.0 - zeta) / 8.0
-    dN_deta[2] = (1.0 + xi) * (1.0 - zeta) / 8.0
-    dN_deta[3] = (1.0 - xi) * (1.0 - zeta) / 8.0
-    dN_deta[4] = -(1.0 - xi) * (1.0 + zeta) / 8.0
-    dN_deta[5] = -(1.0 + xi) * (1.0 + zeta) / 8.0
-    dN_deta[6] = (1.0 + xi) * (1.0 + zeta) / 8.0
-    dN_deta[7] = (1.0 - xi) * (1.0 + zeta) / 8.0
-
-    dN_dzeta[0] = -(1.0 - xi) * (1.0 - eta) / 8.0
-    dN_dzeta[1] = -(1.0 + xi) * (1.0 - eta) / 8.0
-    dN_dzeta[2] = -(1.0 + xi) * (1.0 + eta) / 8.0
-    dN_dzeta[3] = -(1.0 - xi) * (1.0 + eta) / 8.0
-    dN_dzeta[4] = (1.0 - xi) * (1.0 - eta) / 8.0
-    dN_dzeta[5] = (1.0 + xi) * (1.0 - eta) / 8.0
-    dN_dzeta[6] = (1.0 + xi) * (1.0 + eta) / 8.0
-    dN_dzeta[7] = (1.0 - xi) * (1.0 + eta) / 8.0
-
-    return N, dN_dxi, dN_deta, dN_dzeta
+    return hex8_shape_funcs_grads(xi, eta, zeta)
 
 def compute_hex8_element_stiffness(
     mesh: HexMesh3D,
@@ -394,82 +259,7 @@ def compute_hex8_element_stiffness(
     gauss_order: int = 2,
 ) -> np.ndarray:
     """Compute isoparametric Hex8 element stiffness matrix."""
-    if len(elem.node_ids) != 8:
-        raise ValueError(f"Hex8 element must have 8 nodes, got {len(elem.node_ids)}")
-
-    try:
-        E = float(elem.props["E"])
-        nu = float(elem.props["nu"])
-    except KeyError as e:
-        raise KeyError(f"Element {elem.id} missing property {e.args[0]}, props={elem.props}")
-
-    D = _compute_D_3d(E, nu)
-
-    if node_lookup is None:
-        node_lookup = _build_node_lookup_3d(mesh)
-
-    nids = elem.node_ids
-    nodes = [node_lookup[nid] for nid in nids]
-    x = np.array([n.x for n in nodes], dtype=float)
-    y = np.array([n.y for n in nodes], dtype=float)
-    z = np.array([n.z for n in nodes], dtype=float)
-
-    # Gauss points for Hex8 (2x2x2 = 8 points)
-    if gauss_order == 2:
-        a = 1.0 / np.sqrt(3.0)
-        gps = [
-            (-a, -a, -a, 1.0),
-            (a, -a, -a, 1.0),
-            (a, a, -a, 1.0),
-            (-a, a, -a, 1.0),
-            (-a, -a, a, 1.0),
-            (a, -a, a, 1.0),
-            (a, a, a, 1.0),
-            (-a, a, a, 1.0),
-        ]
-    else:
-        raise ValueError(f"Unsupported gauss_order {gauss_order}, only 2 supported")
-
-    Ke = np.zeros((24, 24), dtype=float)  # 8 nodes * 3 DOFs
-
-    for xi, eta, zeta, w in gps:
-        N, dN_dxi, dN_deta, dN_dzeta = _hex8_shape_funcs_grads(xi, eta, zeta)
-
-        # Jacobian matrix
-        J = np.array([
-            [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
-            [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],
-            [np.sum(dN_dzeta * x), np.sum(dN_dzeta * y), np.sum(dN_dzeta * z)],
-        ], dtype=float)
-
-        detJ = np.linalg.det(J)
-        if detJ <= 0.0:
-            raise ValueError(f"Element {elem.id} has negative or zero Jacobian determinant")
-
-        invJ = np.linalg.inv(J)
-
-        # Derivatives in physical coordinates
-        dN_dx = invJ[0, 0] * dN_dxi + invJ[0, 1] * dN_deta + invJ[0, 2] * dN_dzeta
-        dN_dy = invJ[1, 0] * dN_dxi + invJ[1, 1] * dN_deta + invJ[1, 2] * dN_dzeta
-        dN_dz = invJ[2, 0] * dN_dxi + invJ[2, 1] * dN_deta + invJ[2, 2] * dN_dzeta
-
-        # Strain-displacement matrix B (6 strains, 24 DOFs)
-        B = np.zeros((6, 24), dtype=float)
-        for i in range(8):
-            idx = 3 * i
-            B[0, idx] = dN_dx[i]      # ε_xx
-            B[1, idx + 1] = dN_dy[i]  # ε_yy
-            B[2, idx + 2] = dN_dz[i]  # ε_zz
-            B[3, idx] = dN_dy[i]      # γ_xy
-            B[3, idx + 1] = dN_dx[i]
-            B[4, idx + 1] = dN_dz[i]  # γ_yz
-            B[4, idx + 2] = dN_dy[i]
-            B[5, idx] = dN_dz[i]      # γ_zx
-            B[5, idx + 2] = dN_dx[i]
-
-        Ke += (B.T @ D @ B) * detJ * w
-
-    return Ke
+    return get_element_kernel(elem.type).stiffness(mesh, elem, node_lookup, gauss_order)
 
 
 def _tet4_shape_funcs_grads(xi: float, eta: float, zeta: float):

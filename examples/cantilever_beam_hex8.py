@@ -1,7 +1,6 @@
 # Example: cantilever beam solved with Hex8 solid elements.
 
 from fem.mesh_io import read_hex8_3d_abaqus
-from fem.stiffness import compute_hex8_element_stiffness
 from fem.assemble import assemble_global_stiffness_sparse
 from fem.helper import select_node_ids_by_x, select_node_ids_by_xz
 from fem.boundary import BoundaryCondition3D, build_load_vector_3d, apply_dirichlet_bc_3d
@@ -27,16 +26,7 @@ x_min, x_max = min(xs), max(xs)
 z_min, z_max = min(zs), max(zs)
 
 # Assemble global stiffness matrix (sparse).
-K = assemble_global_stiffness_sparse(
-    num_dofs=mesh.num_dofs,
-    num_elements=len(mesh.elements),
-    get_element_dofs=lambda eid: mesh.element_dofs(mesh.elements[eid]),
-    compute_element_stiffness=lambda eid: compute_hex8_element_stiffness(
-        mesh,
-        mesh.elements[eid],
-        node_lookup={node.id: node for node in mesh.nodes},
-    ),
-)
+K = assemble_global_stiffness_sparse(mesh)
 
 # Select fixed boundary (x=x_min) and loaded nodes (x=x_max, z=z_max).
 nodes_sel_fixed = select_node_ids_by_x(mesh, x_value=x_min)
