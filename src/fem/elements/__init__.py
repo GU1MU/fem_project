@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from .base import ElementKernel
 from .hex8 import Hex8Kernel
+from .line import Beam2DKernel, Truss2DKernel
 from .quad4 import Quad4PlaneKernel
+from .quad8 import Quad8PlaneKernel
+from .tet import Tet4Kernel, Tet10Kernel
+from .tri3 import Tri3PlaneKernel
 
 
 _KERNELS: dict[str, ElementKernel] = {}
@@ -28,4 +32,10 @@ def get_element_kernel(element_type: str) -> ElementKernel:
 
 
 register_element_kernel(Quad4PlaneKernel())
+register_element_kernel(Quad8PlaneKernel())
+register_element_kernel(Tri3PlaneKernel())
 register_element_kernel(Hex8Kernel())
+register_element_kernel(Tet4Kernel())
+register_element_kernel(Tet10Kernel())
+register_element_kernel(Truss2DKernel())
+register_element_kernel(Beam2DKernel())

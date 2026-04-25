@@ -904,7 +904,7 @@ def read_tet10_3d_abaqus(
     if not elements:
         raise ValueError(f"No C3D10 *Element data found in {inp_path}")
 
-    from .stiffness import _tet10_gauss_points, _tet10_shape_funcs_grads
+    from .elements.tet import tet10_gauss_points, tet10_shape_funcs_grads
 
     for e in elements:
         coords = [node_lookup[nid] for nid in e.node_ids]
@@ -912,8 +912,8 @@ def read_tet10_3d_abaqus(
         y = np.array([n.y for n in coords], dtype=float)
         z = np.array([n.z for n in coords], dtype=float)
 
-        for xi, eta, zeta, _ in _tet10_gauss_points():
-            _, dN_dxi, dN_deta, dN_dzeta = _tet10_shape_funcs_grads(xi, eta, zeta)
+        for xi, eta, zeta, _ in tet10_gauss_points():
+            _, dN_dxi, dN_deta, dN_dzeta = tet10_shape_funcs_grads(xi, eta, zeta)
             J = np.array([
                 [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
                 [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],

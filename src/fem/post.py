@@ -1,6 +1,7 @@
 ﻿import csv
 from typing import Sequence, Optional, List, Dict
 import numpy as np
+from .elements import get_element_kernel
 from .mesh import Mesh2DProtocol, TrussMesh2D, PlaneMesh2D, Node2D, Mesh3DProtocol, HexMesh3D, TetMesh3D, Node3D
 
 
@@ -1555,8 +1556,6 @@ def _compute_hex8_element_stress_at_point(
     zeta: float,
 ) -> tuple:
     """Compute stresses at a point in Hex8 element."""
-    from .elements import get_element_kernel
-
     return get_element_kernel(elem.type).stress_at(mesh, elem, U, xi, eta, zeta, node_lookup)
 
 
@@ -1647,71 +1646,14 @@ _TET10_NATURAL_NODE_COORDS = [
     (0.5, 0.0, 0.5),
     (0.0, 0.5, 0.5),
 ]
-_TET10_HAMMER_GAUSS_POINTS = [
-    (0.13819660, 0.13819660, 0.13819660, 1.0 / 24.0),
-    (0.58541020, 0.13819660, 0.13819660, 1.0 / 24.0),
-    (0.13819660, 0.58541020, 0.13819660, 1.0 / 24.0),
-    (0.13819660, 0.13819660, 0.58541020, 1.0 / 24.0),
-]
-
-
-def _tet_element_coords(elem, node_lookup: Dict[int, Node3D]):
-    """Return element node coordinates as arrays."""
-    nodes = [node_lookup[nid] for nid in elem.node_ids]
-    x = np.array([n.x for n in nodes], dtype=float)
-    y = np.array([n.y for n in nodes], dtype=float)
-    z = np.array([n.z for n in nodes], dtype=float)
-    return x, y, z
-
-
-def _tet_physical_shape_gradients(
-    elem,
-    x: np.ndarray,
-    y: np.ndarray,
-    z: np.ndarray,
-    dN_dxi: np.ndarray,
-    dN_deta: np.ndarray,
-    dN_dzeta: np.ndarray,
-):
-    """Map tetra shape gradients from natural to physical coordinates."""
-    J = np.array([
-        [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
-        [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],
-        [np.sum(dN_dzeta * x), np.sum(dN_dzeta * y), np.sum(dN_dzeta * z)],
-    ], dtype=float)
-
-    detJ = float(np.linalg.det(J))
-    if detJ <= 0.0:
-        raise ValueError(f"Element {elem.id} has negative or zero Jacobian determinant")
-
-    invJ = np.linalg.inv(J)
-    dN_dx = invJ[0, 0] * dN_dxi + invJ[0, 1] * dN_deta + invJ[0, 2] * dN_dzeta
-    dN_dy = invJ[1, 0] * dN_dxi + invJ[1, 1] * dN_deta + invJ[1, 2] * dN_dzeta
-    dN_dz = invJ[2, 0] * dN_dxi + invJ[2, 1] * dN_deta + invJ[2, 2] * dN_dzeta
-    return dN_dx, dN_dy, dN_dz, detJ
-
-
 def _tet4_element_volume(elem, node_lookup: Dict[int, Node3D]) -> float:
     """Return Tet4 element volume."""
-    from .stiffness import _tet4_shape_funcs_grads
-
-    x, y, z = _tet_element_coords(elem, node_lookup)
-    _, dN_dxi, dN_deta, dN_dzeta = _tet4_shape_funcs_grads(*_TET4_CENTROID)
-    _, _, _, detJ = _tet_physical_shape_gradients(elem, x, y, z, dN_dxi, dN_deta, dN_dzeta)
-    return detJ / 6.0
+    return get_element_kernel(elem.type).volume(None, elem, node_lookup)
 
 
 def _tet10_element_volume(elem, node_lookup: Dict[int, Node3D]) -> float:
     """Return Tet10 element volume using the same 4-point rule as stiffness integration."""
-    from .stiffness import _tet10_shape_funcs_grads
-
-    x, y, z = _tet_element_coords(elem, node_lookup)
-    volume = 0.0
-    for xi, eta, zeta, w in _TET10_HAMMER_GAUSS_POINTS:
-        _, dN_dxi, dN_deta, dN_dzeta = _tet10_shape_funcs_grads(xi, eta, zeta)
-        _, _, _, detJ = _tet_physical_shape_gradients(elem, x, y, z, dN_dxi, dN_deta, dN_dzeta)
-        volume += detJ * w
-    return volume
+    return get_element_kernel(elem.type).volume(None, elem, node_lookup)
 
 def _compute_tet4_element_stress_at_point(
     mesh: Mesh3DProtocol,
@@ -1723,39 +1665,7 @@ def _compute_tet4_element_stress_at_point(
     zeta: float,
 ) -> tuple:
     """Compute 3D stresses at a point in a Tet4 element."""
-    from .stiffness import _tet4_shape_funcs_grads, _compute_D_3d
-
-    E = float(elem.props["E"])
-    nu = float(elem.props["nu"])
-    D = _compute_D_3d(E, nu)
-
-    x, y, z = _tet_element_coords(elem, node_lookup)
-
-    _, dN_dxi, dN_deta, dN_dzeta = _tet4_shape_funcs_grads(xi, eta, zeta)
-    dN_dx, dN_dy, dN_dz, _ = _tet_physical_shape_gradients(
-        elem, x, y, z, dN_dxi, dN_deta, dN_dzeta
-    )
-
-    # B matrix (6 x 12)
-    B = np.zeros((6, 12), dtype=float)
-    for i in range(4):
-        idx = 3 * i
-        B[0, idx] = dN_dx[i]
-        B[1, idx + 1] = dN_dy[i]
-        B[2, idx + 2] = dN_dz[i]
-        B[3, idx] = dN_dy[i]
-        B[3, idx + 1] = dN_dx[i]
-        B[4, idx + 1] = dN_dz[i]
-        B[4, idx + 2] = dN_dy[i]
-        B[5, idx] = dN_dz[i]
-        B[5, idx + 2] = dN_dx[i]
-
-    elem_dofs = mesh.element_dofs(elem)
-    Ue = U[elem_dofs]
-    epsilon = B @ Ue
-    sigma = D @ epsilon
-
-    return sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], sigma[5]
+    return get_element_kernel(elem.type).stress_at(mesh, elem, U, xi, eta, zeta, node_lookup)
 
 
 def export_tet4_element_stress_csv(
@@ -1857,39 +1767,7 @@ def _compute_tet10_element_stress_at_point(
     zeta: float,
 ) -> tuple:
     """Compute 3D stresses at a point in a Tet10 element."""
-    from .stiffness import _tet10_shape_funcs_grads, _compute_D_3d
-
-    E = float(elem.props["E"])
-    nu = float(elem.props["nu"])
-    D = _compute_D_3d(E, nu)
-
-    x, y, z = _tet_element_coords(elem, node_lookup)
-
-    _, dN_dxi, dN_deta, dN_dzeta = _tet10_shape_funcs_grads(xi, eta, zeta)
-    dN_dx, dN_dy, dN_dz, _ = _tet_physical_shape_gradients(
-        elem, x, y, z, dN_dxi, dN_deta, dN_dzeta
-    )
-
-    # B matrix (6 x 30)
-    B = np.zeros((6, 30), dtype=float)
-    for i in range(10):
-        idx = 3 * i
-        B[0, idx] = dN_dx[i]
-        B[1, idx + 1] = dN_dy[i]
-        B[2, idx + 2] = dN_dz[i]
-        B[3, idx] = dN_dy[i]
-        B[3, idx + 1] = dN_dx[i]
-        B[4, idx + 1] = dN_dz[i]
-        B[4, idx + 2] = dN_dy[i]
-        B[5, idx] = dN_dz[i]
-        B[5, idx + 2] = dN_dx[i]
-
-    elem_dofs = mesh.element_dofs(elem)
-    Ue = U[elem_dofs]
-    epsilon = B @ Ue
-    sigma = D @ epsilon
-
-    return sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], sigma[5]
+    return get_element_kernel(elem.type).stress_at(mesh, elem, U, xi, eta, zeta, node_lookup)
 
 
 def export_tet10_element_stress_csv(

@@ -1,0 +1,268 @@
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+from .base import build_node_lookup
+from ..materials import compute_3d_elastic_matrix
+
+
+def tet4_shape_funcs_grads(xi: float, eta: float, zeta: float):
+    """Return N and natural gradients for Tet4."""
+    N = np.array([
+        1.0 - xi - eta - zeta,
+        xi,
+        eta,
+        zeta,
+    ], dtype=float)
+    dN_dxi = np.array([-1.0, 1.0, 0.0, 0.0], dtype=float)
+    dN_deta = np.array([-1.0, 0.0, 1.0, 0.0], dtype=float)
+    dN_dzeta = np.array([-1.0, 0.0, 0.0, 1.0], dtype=float)
+    return N, dN_dxi, dN_deta, dN_dzeta
+
+
+def tet4_gauss_points():
+    """Return centroid integration point for Tet4."""
+    return [(0.25, 0.25, 0.25, 1.0 / 6.0)]
+
+
+def tet10_shape_funcs_grads(xi: float, eta: float, zeta: float):
+    """Return N and natural gradients for Tet10."""
+    L1 = 1.0 - xi - eta - zeta
+    L2 = xi
+    L3 = eta
+    L4 = zeta
+
+    N = np.zeros(10, dtype=float)
+    dN_dxi = np.zeros(10, dtype=float)
+    dN_deta = np.zeros(10, dtype=float)
+    dN_dzeta = np.zeros(10, dtype=float)
+
+    N[0] = (2.0 * L1 - 1.0) * L1
+    N[1] = (2.0 * L2 - 1.0) * L2
+    N[2] = (2.0 * L3 - 1.0) * L3
+    N[3] = (2.0 * L4 - 1.0) * L4
+    N[4] = 4.0 * L1 * L2
+    N[5] = 4.0 * L2 * L3
+    N[6] = 4.0 * L1 * L3
+    N[7] = 4.0 * L1 * L4
+    N[8] = 4.0 * L2 * L4
+    N[9] = 4.0 * L3 * L4
+
+    dL1_dxi = -1.0
+    dL1_deta = -1.0
+    dL1_dzeta = -1.0
+    dL2_dxi = 1.0
+    dL2_deta = 0.0
+    dL2_dzeta = 0.0
+    dL3_dxi = 0.0
+    dL3_deta = 1.0
+    dL3_dzeta = 0.0
+    dL4_dxi = 0.0
+    dL4_deta = 0.0
+    dL4_dzeta = 1.0
+
+    dN_dxi[0] = (4.0 * L1 - 1.0) * dL1_dxi
+    dN_deta[0] = (4.0 * L1 - 1.0) * dL1_deta
+    dN_dzeta[0] = (4.0 * L1 - 1.0) * dL1_dzeta
+    dN_dxi[1] = (4.0 * L2 - 1.0) * dL2_dxi
+    dN_deta[1] = (4.0 * L2 - 1.0) * dL2_deta
+    dN_dzeta[1] = (4.0 * L2 - 1.0) * dL2_dzeta
+    dN_dxi[2] = (4.0 * L3 - 1.0) * dL3_dxi
+    dN_deta[2] = (4.0 * L3 - 1.0) * dL3_deta
+    dN_dzeta[2] = (4.0 * L3 - 1.0) * dL3_dzeta
+    dN_dxi[3] = (4.0 * L4 - 1.0) * dL4_dxi
+    dN_deta[3] = (4.0 * L4 - 1.0) * dL4_deta
+    dN_dzeta[3] = (4.0 * L4 - 1.0) * dL4_dzeta
+
+    dN_dxi[4] = 4.0 * (L2 * dL1_dxi + L1 * dL2_dxi)
+    dN_deta[4] = 4.0 * (L2 * dL1_deta + L1 * dL2_deta)
+    dN_dzeta[4] = 4.0 * (L2 * dL1_dzeta + L1 * dL2_dzeta)
+    dN_dxi[5] = 4.0 * (L3 * dL2_dxi + L2 * dL3_dxi)
+    dN_deta[5] = 4.0 * (L3 * dL2_deta + L2 * dL3_deta)
+    dN_dzeta[5] = 4.0 * (L3 * dL2_dzeta + L2 * dL3_dzeta)
+    dN_dxi[6] = 4.0 * (L3 * dL1_dxi + L1 * dL3_dxi)
+    dN_deta[6] = 4.0 * (L3 * dL1_deta + L1 * dL3_deta)
+    dN_dzeta[6] = 4.0 * (L3 * dL1_dzeta + L1 * dL3_dzeta)
+    dN_dxi[7] = 4.0 * (L4 * dL1_dxi + L1 * dL4_dxi)
+    dN_deta[7] = 4.0 * (L4 * dL1_deta + L1 * dL4_deta)
+    dN_dzeta[7] = 4.0 * (L4 * dL1_dzeta + L1 * dL4_dzeta)
+    dN_dxi[8] = 4.0 * (L4 * dL2_dxi + L2 * dL4_dxi)
+    dN_deta[8] = 4.0 * (L4 * dL2_deta + L2 * dL4_deta)
+    dN_dzeta[8] = 4.0 * (L4 * dL2_dzeta + L2 * dL4_dzeta)
+    dN_dxi[9] = 4.0 * (L4 * dL3_dxi + L3 * dL4_dxi)
+    dN_deta[9] = 4.0 * (L4 * dL3_deta + L3 * dL4_deta)
+    dN_dzeta[9] = 4.0 * (L4 * dL3_dzeta + L3 * dL4_dzeta)
+
+    return N, dN_dxi, dN_deta, dN_dzeta
+
+
+def tet10_gauss_points():
+    """Return 4-point Hammer integration rule for Tet10."""
+    n = 0.58541020
+    a = (1.0 - n) / 4.0
+    b = (1.0 + 3.0 * n) / 4.0
+    w = 1.0 / 24.0
+    return [
+        (a, a, a, w),
+        (b, a, a, w),
+        (a, b, a, w),
+        (a, a, b, w),
+    ]
+
+
+def tet_physical_shape_gradients(
+    elem: Any,
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
+    dN_dxi: np.ndarray,
+    dN_deta: np.ndarray,
+    dN_dzeta: np.ndarray,
+):
+    """Map tetra shape gradients to physical coordinates."""
+    J = np.array([
+        [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
+        [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],
+        [np.sum(dN_dzeta * x), np.sum(dN_dzeta * y), np.sum(dN_dzeta * z)],
+    ], dtype=float)
+
+    detJ = float(np.linalg.det(J))
+    if detJ <= 0.0:
+        raise ValueError(f"Element {elem.id} has negative or zero Jacobian determinant")
+
+    invJ = np.linalg.inv(J)
+    dN_dx = invJ[0, 0] * dN_dxi + invJ[0, 1] * dN_deta + invJ[0, 2] * dN_dzeta
+    dN_dy = invJ[1, 0] * dN_dxi + invJ[1, 1] * dN_deta + invJ[1, 2] * dN_dzeta
+    dN_dz = invJ[2, 0] * dN_dxi + invJ[2, 1] * dN_deta + invJ[2, 2] * dN_dzeta
+    return dN_dx, dN_dy, dN_dz, detJ
+
+
+def build_tet_B_matrix(dN_dx: np.ndarray, dN_dy: np.ndarray, dN_dz: np.ndarray) -> np.ndarray:
+    """Return 3D strain-displacement matrix for tetra nodes."""
+    node_count = len(dN_dx)
+    B = np.zeros((6, node_count * 3), dtype=float)
+    for i in range(node_count):
+        idx = 3 * i
+        B[0, idx] = dN_dx[i]
+        B[1, idx + 1] = dN_dy[i]
+        B[2, idx + 2] = dN_dz[i]
+        B[3, idx] = dN_dy[i]
+        B[3, idx + 1] = dN_dx[i]
+        B[4, idx + 1] = dN_dz[i]
+        B[4, idx + 2] = dN_dy[i]
+        B[5, idx] = dN_dz[i]
+        B[5, idx + 2] = dN_dx[i]
+    return B
+
+
+class _TetKernelBase:
+    """Shared tetrahedral solid element logic."""
+    node_count: int
+    gauss_points: Any
+    shape_funcs_grads: Any
+
+    def stiffness(
+        self,
+        mesh: Any,
+        elem: Any,
+        node_lookup: dict[int, Any] | None = None,
+    ) -> np.ndarray:
+        """Return tetrahedral element stiffness."""
+        if len(elem.node_ids) != self.node_count:
+            raise ValueError(
+                f"{self.type_names[0]} element must have {self.node_count} nodes, got {len(elem.node_ids)}"
+            )
+
+        D = self._material_matrix(elem)
+        Ke = np.zeros((self.node_count * 3, self.node_count * 3), dtype=float)
+        for xi, eta, zeta, w in self.gauss_points():
+            B, detJ = self._B_matrix(mesh, elem, xi, eta, zeta, node_lookup)
+            Ke += (B.T @ D @ B) * detJ * w
+        return Ke
+
+    def stress_at(
+        self,
+        mesh: Any,
+        elem: Any,
+        U: np.ndarray,
+        xi: float,
+        eta: float,
+        zeta: float,
+        node_lookup: dict[int, Any] | None = None,
+    ) -> tuple[float, float, float, float, float, float]:
+        """Return stress at one natural coordinate point."""
+        D = self._material_matrix(elem)
+        B, _ = self._B_matrix(mesh, elem, xi, eta, zeta, node_lookup)
+        sigma = D @ (B @ U[mesh.element_dofs(elem)])
+        return tuple(float(v) for v in sigma)
+
+    def volume(self, mesh: Any, elem: Any, node_lookup: dict[int, Any] | None = None) -> float:
+        """Return element volume using the stiffness integration rule."""
+        volume = 0.0
+        nodes = self._nodes(mesh, elem, node_lookup)
+        x, y, z = self._coords(nodes)
+        for xi, eta, zeta, w in self.gauss_points():
+            _, dN_dxi, dN_deta, dN_dzeta = self.shape_funcs_grads(xi, eta, zeta)
+            _, _, _, detJ = tet_physical_shape_gradients(
+                elem, x, y, z, dN_dxi, dN_deta, dN_dzeta
+            )
+            volume += detJ * w
+        return volume
+
+    def _material_matrix(self, elem: Any) -> np.ndarray:
+        """Return 3D material matrix from element props."""
+        try:
+            E = float(elem.props["E"])
+            nu = float(elem.props["nu"])
+        except KeyError as e:
+            raise KeyError(f"Element {elem.id} missing property {e.args[0]}, props={elem.props}")
+        return compute_3d_elastic_matrix(E, nu)
+
+    def _nodes(self, mesh: Any, elem: Any, node_lookup: dict[int, Any] | None):
+        """Return element nodes in element order."""
+        if node_lookup is None:
+            node_lookup = build_node_lookup(mesh)
+        return [node_lookup[nid] for nid in elem.node_ids]
+
+    def _coords(self, nodes: list[Any]):
+        """Return coordinate arrays for element nodes."""
+        x = np.array([n.x for n in nodes], dtype=float)
+        y = np.array([n.y for n in nodes], dtype=float)
+        z = np.array([n.z for n in nodes], dtype=float)
+        return x, y, z
+
+    def _B_matrix(
+        self,
+        mesh: Any,
+        elem: Any,
+        xi: float,
+        eta: float,
+        zeta: float,
+        node_lookup: dict[int, Any] | None,
+    ):
+        """Return B matrix and detJ at one natural coordinate point."""
+        nodes = self._nodes(mesh, elem, node_lookup)
+        x, y, z = self._coords(nodes)
+        _, dN_dxi, dN_deta, dN_dzeta = self.shape_funcs_grads(xi, eta, zeta)
+        dN_dx, dN_dy, dN_dz, detJ = tet_physical_shape_gradients(
+            elem, x, y, z, dN_dxi, dN_deta, dN_dzeta
+        )
+        return build_tet_B_matrix(dN_dx, dN_dy, dN_dz), detJ
+
+
+class Tet4Kernel(_TetKernelBase):
+    """Tet4 solid element kernel."""
+    type_names = ("Tet4", "C3D4", "C3D4T")
+    node_count = 4
+    gauss_points = staticmethod(tet4_gauss_points)
+    shape_funcs_grads = staticmethod(tet4_shape_funcs_grads)
+
+
+class Tet10Kernel(_TetKernelBase):
+    """Tet10 solid element kernel."""
+    type_names = ("Tet10", "C3D10")
+    node_count = 10
+    gauss_points = staticmethod(tet10_gauss_points)
+    shape_funcs_grads = staticmethod(tet10_shape_funcs_grads)

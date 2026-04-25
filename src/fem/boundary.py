@@ -222,7 +222,7 @@ def _add_element_body_force_consistent_3d(mesh: Any, elem: Any, node_lookup: Dic
 
     elif "tet4" in et:
         # For Tet4, use single-point integration at centroid
-        from .stiffness import _tet4_shape_funcs_grads
+        from .elements.tet import tet4_shape_funcs_grads
 
         nids = elem.node_ids
         nodes = [node_lookup[i] for i in nids]
@@ -231,7 +231,7 @@ def _add_element_body_force_consistent_3d(mesh: Any, elem: Any, node_lookup: Dic
         z = np.array([n.z for n in nodes], dtype=float)
 
         # Single Gauss point at centroid (1/4, 1/4, 1/4), weight = 1/6
-        N, dN_dxi, dN_deta, dN_dzeta = _tet4_shape_funcs_grads(0.25, 0.25, 0.25)
+        N, dN_dxi, dN_deta, dN_dzeta = tet4_shape_funcs_grads(0.25, 0.25, 0.25)
 
         J = np.array([
             [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
@@ -254,7 +254,7 @@ def _add_element_body_force_consistent_3d(mesh: Any, elem: Any, node_lookup: Dic
         F[dofs] += fe
 
     elif "tet10" in et:
-        from .stiffness import _tet10_gauss_points, _tet10_shape_funcs_grads
+        from .elements.tet import tet10_gauss_points, tet10_shape_funcs_grads
 
         nids = elem.node_ids
         nodes = [node_lookup[i] for i in nids]
@@ -265,8 +265,8 @@ def _add_element_body_force_consistent_3d(mesh: Any, elem: Any, node_lookup: Dic
         bvec = np.array([float(bx), float(by), float(bz)], dtype=float)
         fe = np.zeros(30, dtype=float)  # 10 nodes * 3 DOFs
 
-        for xi, eta, zeta, w in _tet10_gauss_points():
-            N, dN_dxi, dN_deta, dN_dzeta = _tet10_shape_funcs_grads(xi, eta, zeta)
+        for xi, eta, zeta, w in tet10_gauss_points():
+            N, dN_dxi, dN_deta, dN_dzeta = tet10_shape_funcs_grads(xi, eta, zeta)
             J = np.array([
                 [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
                 [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],
