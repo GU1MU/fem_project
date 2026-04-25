@@ -67,6 +67,56 @@ class Quad4PlaneKernel:
         Ue = U[mesh.element_dofs(elem)]
         return D @ (B @ Ue)
 
+    def body_force(
+        self,
+        mesh: Any,
+        elem: Any,
+        vector: tuple[float, float],
+        node_lookup: dict[int, Any] | None = None,
+    ) -> np.ndarray:
+        """Return consistent Quad4 body force vector."""
+        t = self._thickness(elem)
+        nodes = self._nodes(mesh, elem, node_lookup)
+        x, y = self._coords(nodes)
+        bvec = np.array(vector, dtype=float)
+        fe = np.zeros(8, dtype=float)
+
+        for xi, eta, w in quad4_gauss_points(2):
+            N = self._shape_funcs(xi, eta)
+            dN = quad4_shape_grad_xi_eta(xi, eta)
+            detJ = self._det_jacobian(elem, x, y, dN)
+            for i in range(4):
+                fe[2 * i:2 * i + 2] += N[i] * bvec * (t * detJ * w)
+        return fe
+
+    def edge_traction(
+        self,
+        mesh: Any,
+        elem: Any,
+        local_edge: int,
+        traction: tuple[float, float],
+        node_lookup: dict[int, Any] | None = None,
+    ) -> np.ndarray:
+        """Return consistent Quad4 edge traction vector."""
+        if local_edge < 0 or local_edge >= 4:
+            raise ValueError(f"Quad4 local_edge must be 0/1/2/3, got {local_edge}")
+
+        t = self._thickness(elem)
+        nodes = self._nodes(mesh, elem, node_lookup)
+        x, y = self._coords(nodes)
+        tvec = np.array(traction, dtype=float)
+        fe = np.zeros(8, dtype=float)
+        gp = 1.0 / np.sqrt(3.0)
+
+        for s, w in [(-gp, 1.0), (gp, 1.0)]:
+            xi, eta, dxi_ds, deta_ds = self._edge_point(local_edge, s)
+            N = self._shape_funcs(xi, eta)
+            dN = quad4_shape_grad_xi_eta(xi, eta)
+            jac = self._edge_jacobian(elem, x, y, dN, dxi_ds, deta_ds)
+            for i in range(4):
+                fe[2 * i:2 * i + 2] += N[i] * tvec * (t * jac * w)
+        return fe
+
     def _material_data(self, elem: Any):
         """Return D matrix and thickness from element props."""
         try:
@@ -79,6 +129,23 @@ class Quad4PlaneKernel:
         pt = str(elem.props.get("plane_type", "stress")).lower()
         D = compute_plane_elastic_matrix(E, nu, pt)
         return D, t
+
+    def _thickness(self, elem: Any) -> float:
+        """Return plane element thickness."""
+        return float(elem.props.get("thickness", 1.0))
+
+    def _nodes(self, mesh: Any, elem: Any, node_lookup: dict[int, Any] | None):
+        """Return element nodes in element order."""
+        if node_lookup is None:
+            node_lookup = build_node_lookup(mesh)
+        return [node_lookup[i] for i in elem.node_ids]
+
+    def _coords(self, nodes: list[Any]):
+        """Return x and y coordinate arrays."""
+        return (
+            np.array([n.x for n in nodes], dtype=float),
+            np.array([n.y for n in nodes], dtype=float),
+        )
 
     def _integration_data(
         self,
@@ -107,19 +174,12 @@ class Quad4PlaneKernel:
         if node_lookup is None:
             node_lookup = build_node_lookup(mesh)
 
-        nodes = [node_lookup[i] for i in elem.node_ids]
-        x = np.array([n.x for n in nodes], dtype=float)
-        y = np.array([n.y for n in nodes], dtype=float)
+        nodes = self._nodes(mesh, elem, node_lookup)
+        x, y = self._coords(nodes)
 
         dN = quad4_shape_grad_xi_eta(xi, eta)
-        J = np.array(
-            [[np.dot(dN[0], x), np.dot(dN[0], y)],
-             [np.dot(dN[1], x), np.dot(dN[1], y)]],
-            dtype=float,
-        )
-        detJ = float(np.linalg.det(J))
-        if detJ == 0.0:
-            raise ValueError(f"elem {elem.id} singular Jacobian")
+        J = self._jacobian(x, y, dN)
+        detJ = self._checked_det_jacobian(elem, J)
 
         dN_xy = np.linalg.inv(J) @ dN
         B = np.zeros((3, 8), dtype=float)
@@ -133,3 +193,63 @@ class Quad4PlaneKernel:
             B[2, c + 1] = dN_dx
 
         return B, detJ
+
+    def _shape_funcs(self, xi: float, eta: float) -> np.ndarray:
+        """Return Quad4 shape functions."""
+        return 0.25 * np.array([
+            (1.0 - xi) * (1.0 - eta),
+            (1.0 + xi) * (1.0 - eta),
+            (1.0 + xi) * (1.0 + eta),
+            (1.0 - xi) * (1.0 + eta),
+        ], dtype=float)
+
+    def _jacobian(self, x: np.ndarray, y: np.ndarray, dN: np.ndarray) -> np.ndarray:
+        """Return 2D isoparametric Jacobian."""
+        return np.array(
+            [[np.dot(dN[0], x), np.dot(dN[0], y)],
+             [np.dot(dN[1], x), np.dot(dN[1], y)]],
+            dtype=float,
+        )
+
+    def _checked_det_jacobian(self, elem: Any, J: np.ndarray) -> float:
+        """Return detJ and reject singular elements."""
+        detJ = float(np.linalg.det(J))
+        if detJ == 0.0:
+            raise ValueError(f"elem {elem.id} singular Jacobian")
+        return detJ
+
+    def _det_jacobian(self, elem: Any, x: np.ndarray, y: np.ndarray, dN: np.ndarray) -> float:
+        """Return detJ from natural gradients."""
+        return self._checked_det_jacobian(elem, self._jacobian(x, y, dN))
+
+    def _edge_point(self, local_edge: int, s: float):
+        """Map edge parameter to natural coordinates."""
+        if local_edge == 0:
+            return s, -1.0, 1.0, 0.0
+        if local_edge == 1:
+            return 1.0, s, 0.0, 1.0
+        if local_edge == 2:
+            return -s, 1.0, -1.0, 0.0
+        return -1.0, -s, 0.0, -1.0
+
+    def _edge_jacobian(
+        self,
+        elem: Any,
+        x: np.ndarray,
+        y: np.ndarray,
+        dN: np.ndarray,
+        dxi_ds: float,
+        deta_ds: float,
+    ) -> float:
+        """Return edge length scale from natural gradients."""
+        dx_dxi = float(np.dot(dN[0], x))
+        dy_dxi = float(np.dot(dN[0], y))
+        dx_deta = float(np.dot(dN[1], x))
+        dy_deta = float(np.dot(dN[1], y))
+        jac = float(np.hypot(
+            dx_dxi * dxi_ds + dx_deta * deta_ds,
+            dy_dxi * dxi_ds + dy_deta * deta_ds,
+        ))
+        if jac == 0.0:
+            raise ValueError(f"Quad4 elem {elem.id} edge has zero Jacobian")
+        return jac

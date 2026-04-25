@@ -35,20 +35,69 @@ class Tri3PlaneKernel:
         D, _ = self._material_data(elem)
         return D @ (B @ U[mesh.element_dofs(elem)])
 
+    def body_force(
+        self,
+        mesh: Any,
+        elem: Any,
+        vector: tuple[float, float],
+        node_lookup: dict[int, Any] | None = None,
+    ) -> np.ndarray:
+        """Return consistent Tri3 body force vector."""
+        _, area = self._B_matrix(mesh, elem, node_lookup)
+        t = self._thickness(elem)
+        bvec = np.array(vector, dtype=float)
+        fe = np.zeros(6, dtype=float)
+        for i in range(3):
+            fe[2 * i:2 * i + 2] = bvec * (t * area / 3.0)
+        return fe
+
+    def edge_traction(
+        self,
+        mesh: Any,
+        elem: Any,
+        local_edge: int,
+        traction: tuple[float, float],
+        node_lookup: dict[int, Any] | None = None,
+    ) -> np.ndarray:
+        """Return consistent Tri3 edge traction vector."""
+        edge_nodes = [(0, 1), (1, 2), (2, 0)]
+        if local_edge < 0 or local_edge >= 3:
+            raise ValueError(f"Tri3 local_edge must be 0/1/2, got {local_edge}")
+        if node_lookup is None:
+            node_lookup = build_node_lookup(mesh)
+
+        i, j = edge_nodes[local_edge]
+        ni = node_lookup[elem.node_ids[i]]
+        nj = node_lookup[elem.node_ids[j]]
+        length = float(np.hypot(nj.x - ni.x, nj.y - ni.y))
+        if length <= 0.0:
+            raise ValueError(f"Tri3 elem {elem.id} edge length is zero")
+
+        t = self._thickness(elem)
+        tvec = np.array(traction, dtype=float)
+        fe = np.zeros(6, dtype=float)
+        for local_i in (i, j):
+            fe[2 * local_i:2 * local_i + 2] += tvec * (t * length / 2.0)
+        return fe
+
     def _material_data(self, elem: Any):
         """Return D matrix and thickness from element props."""
         try:
             E = float(elem.props["E"])
             nu = float(elem.props["nu"])
-            t = float(elem.props["thickness"])
         except KeyError as e:
             raise KeyError(
                 f"元素 {elem.id} 的 props 缺少 {e.args[0]}，当前 props={elem.props}"
             )
 
+        t = self._thickness(elem)
         pt = str(elem.props.get("plane_type", "stress")).lower()
         D = compute_plane_elastic_matrix(E, nu, pt)
         return D, t
+
+    def _thickness(self, elem: Any) -> float:
+        """Return plane element thickness."""
+        return float(elem.props.get("thickness", 1.0))
 
     def _B_matrix(
         self,

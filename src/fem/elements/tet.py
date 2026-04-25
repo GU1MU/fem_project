@@ -112,6 +112,47 @@ def tet10_gauss_points():
     ]
 
 
+def tri6_gauss_points():
+    """Return 3-point triangle rule for Tet10 faces."""
+    return [
+        (1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0),
+        (2.0 / 3.0, 1.0 / 6.0, 1.0 / 6.0),
+        (1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0),
+    ]
+
+
+def tri6_shape_funcs_grads(xi: float, eta: float):
+    """Return N and natural gradients for Tri6."""
+    L1 = 1.0 - xi - eta
+    L2 = xi
+    L3 = eta
+    N = np.array([
+        L1 * (2.0 * L1 - 1.0),
+        L2 * (2.0 * L2 - 1.0),
+        L3 * (2.0 * L3 - 1.0),
+        4.0 * L1 * L2,
+        4.0 * L2 * L3,
+        4.0 * L3 * L1,
+    ], dtype=float)
+    dN_dxi = np.array([
+        -(4.0 * L1 - 1.0),
+        4.0 * L2 - 1.0,
+        0.0,
+        4.0 * (L1 - L2),
+        4.0 * L3,
+        -4.0 * L3,
+    ], dtype=float)
+    dN_deta = np.array([
+        -(4.0 * L1 - 1.0),
+        0.0,
+        4.0 * L3 - 1.0,
+        -4.0 * L2,
+        4.0 * L2,
+        4.0 * (L1 - L3),
+    ], dtype=float)
+    return N, dN_dxi, dN_deta
+
+
 def tet_physical_shape_gradients(
     elem: Any,
     x: np.ndarray,
@@ -211,6 +252,28 @@ class _TetKernelBase:
             volume += detJ * w
         return volume
 
+    def body_force(
+        self,
+        mesh: Any,
+        elem: Any,
+        vector: tuple[float, float, float],
+        node_lookup: dict[int, Any] | None = None,
+    ) -> np.ndarray:
+        """Return consistent tetrahedral body force vector."""
+        nodes = self._nodes(mesh, elem, node_lookup)
+        x, y, z = self._coords(nodes)
+        bvec = np.array(vector, dtype=float)
+        fe = np.zeros(self.node_count * 3, dtype=float)
+
+        for xi, eta, zeta, w in self.gauss_points():
+            N, dN_dxi, dN_deta, dN_dzeta = self.shape_funcs_grads(xi, eta, zeta)
+            _, _, _, detJ = tet_physical_shape_gradients(
+                elem, x, y, z, dN_dxi, dN_deta, dN_dzeta
+            )
+            for i in range(self.node_count):
+                fe[3 * i:3 * i + 3] += N[i] * bvec * (detJ * w)
+        return fe
+
     def _material_matrix(self, elem: Any) -> np.ndarray:
         """Return 3D material matrix from element props."""
         try:
@@ -258,6 +321,41 @@ class Tet4Kernel(_TetKernelBase):
     node_count = 4
     gauss_points = staticmethod(tet4_gauss_points)
     shape_funcs_grads = staticmethod(tet4_shape_funcs_grads)
+    face_node_indices = [
+        [1, 2, 3],
+        [0, 2, 3],
+        [0, 1, 3],
+        [0, 1, 2],
+    ]
+
+    def face_traction(
+        self,
+        mesh: Any,
+        elem: Any,
+        local_face: int,
+        traction: tuple[float, float, float],
+        node_lookup: dict[int, Any] | None = None,
+    ) -> np.ndarray:
+        """Return consistent Tet4 face traction vector."""
+        if local_face < 0 or local_face >= 4:
+            raise ValueError(f"Invalid local_face {local_face}, must be 0-3 for Tet4")
+        if node_lookup is None:
+            node_lookup = build_node_lookup(mesh)
+
+        face_local = self.face_node_indices[local_face]
+        face_nodes = [node_lookup[elem.node_ids[i]] for i in face_local]
+        p1 = np.array([face_nodes[0].x, face_nodes[0].y, face_nodes[0].z], dtype=float)
+        p2 = np.array([face_nodes[1].x, face_nodes[1].y, face_nodes[1].z], dtype=float)
+        p3 = np.array([face_nodes[2].x, face_nodes[2].y, face_nodes[2].z], dtype=float)
+        area = 0.5 * float(np.linalg.norm(np.cross(p2 - p1, p3 - p1)))
+        if area <= 0.0:
+            raise ValueError(f"Tet4 elem {elem.id} face {local_face} has zero area")
+
+        tvec = np.array(traction, dtype=float)
+        fe = np.zeros(12, dtype=float)
+        for parent_local in face_local:
+            fe[3 * parent_local:3 * parent_local + 3] += tvec * (area / 3.0)
+        return fe
 
 
 class Tet10Kernel(_TetKernelBase):
@@ -266,3 +364,38 @@ class Tet10Kernel(_TetKernelBase):
     node_count = 10
     gauss_points = staticmethod(tet10_gauss_points)
     shape_funcs_grads = staticmethod(tet10_shape_funcs_grads)
+    face_node_indices = [
+        [1, 2, 3, 5, 9, 8],
+        [0, 2, 3, 6, 9, 7],
+        [0, 1, 3, 4, 8, 7],
+        [0, 1, 2, 4, 5, 6],
+    ]
+
+    def face_traction(
+        self,
+        mesh: Any,
+        elem: Any,
+        local_face: int,
+        traction: tuple[float, float, float],
+        node_lookup: dict[int, Any] | None = None,
+    ) -> np.ndarray:
+        """Return consistent Tet10 face traction vector."""
+        if local_face < 0 or local_face >= 4:
+            raise ValueError(f"Invalid local_face {local_face}, must be 0-3 for Tet10")
+        if node_lookup is None:
+            node_lookup = build_node_lookup(mesh)
+
+        face_local = self.face_node_indices[local_face]
+        face_nodes = [node_lookup[elem.node_ids[i]] for i in face_local]
+        face_xyz = np.array([[n.x, n.y, n.z] for n in face_nodes], dtype=float)
+        tvec = np.array(traction, dtype=float)
+        fe = np.zeros(30, dtype=float)
+
+        for xi, eta, w in tri6_gauss_points():
+            N, dN_dxi, dN_deta = tri6_shape_funcs_grads(xi, eta)
+            area_scale = float(np.linalg.norm(np.cross(dN_dxi @ face_xyz, dN_deta @ face_xyz)))
+            if area_scale <= 0.0:
+                raise ValueError(f"Tet10 elem {elem.id} face {local_face} has zero area")
+            for i, parent_local in enumerate(face_local):
+                fe[3 * parent_local:3 * parent_local + 3] += N[i] * tvec * (area_scale * w)
+        return fe
