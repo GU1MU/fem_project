@@ -1,6 +1,6 @@
 # Example: cantilever beam solved with Hex8 solid elements.
 
-from fem.mesh_io import read_hex8_3d_abaqus
+from fem.io import read_hex8_3d_abaqus
 from fem.assemble import assemble_global_stiffness_sparse
 from fem.helper import select_node_ids_by_x, select_node_ids_by_xz
 from fem.boundary import BoundaryCondition3D, build_load_vector_3d, apply_dirichlet_bc_3d
