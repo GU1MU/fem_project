@@ -29,7 +29,7 @@
   管理节点到全局自由度编号的映射
 - `src/fem/io/`
   读取 Abaqus/CSV 网格和材料数据
-- `src/fem/stiffness.py`
+- `src/fem/elements/`
   计算各类单元刚度矩阵
 - `src/fem/assemble.py`
   装配全局刚度矩阵
@@ -85,7 +85,7 @@ python examples\cantilever_beam_hex8.py
 示例脚本遵循同一条主线：
 
 1. 用 `fem.io` 读取网格和材料
-2. 用 `stiffness` 计算单元刚度
+2. 用`fem.elements`提供单元内核
 3. 用 `assemble` 装配全局刚度矩阵
 4. 用 `boundary` 定义约束和载荷
 5. 用 `solve` 求解位移
