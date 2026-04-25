@@ -278,7 +278,7 @@ def compute_quad4_plane_element_stiffness(
         raise ValueError(f"elem {elem.id} invalid plane_type={elem.props.get('plane_type')}")
 
     if node_lookup is None:
-        node_lookup = _build_node_lookup(mesh.nodes)
+        node_lookup = _build_node_lookup(mesh)
 
     nids = elem.node_ids
     n1, n2, n3, n4 = (node_lookup[i] for i in nids)

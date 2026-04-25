@@ -227,21 +227,23 @@ def _add_element_body_force_consistent_3d(mesh: Any, elem: Any, node_lookup: Dic
         fe = np.zeros(24, dtype=float)  # 8 nodes * 3 DOFs
         bvec = np.array([float(bx), float(by), float(bz)], dtype=float)
 
+        x = np.array([n.x for n in nodes], dtype=float)
+        y = np.array([n.y for n in nodes], dtype=float)
+        z = np.array([n.z for n in nodes], dtype=float)
+
         for xi, eta, zeta, w in gps:
-            # Get shape functions at Gauss point
             from .stiffness import _hex8_shape_funcs_grads
-            N, _, _, _ = _hex8_shape_funcs_grads(xi, eta, zeta)
+            N, dN_dxi, dN_deta, dN_dzeta = _hex8_shape_funcs_grads(xi, eta, zeta)
 
-            # Jacobian for volume calculation
-            x = np.array([n.x for n in nodes])
-            y = np.array([n.y for n in nodes])
-            z = np.array([n.z for n in nodes])
-
-            dN_dxi, dN_deta, dN_dzeta = np.zeros(8), np.zeros(8), np.zeros(8)
-            # Need to compute derivatives - simplified for volume
-            # For accurate volume integration, we need proper Jacobian calculation
-            # For now, approximate volume as 1.0 (unit cube)
-            vol_factor = 1.0 * w
+            J = np.array([
+                [np.sum(dN_dxi * x), np.sum(dN_dxi * y), np.sum(dN_dxi * z)],
+                [np.sum(dN_deta * x), np.sum(dN_deta * y), np.sum(dN_deta * z)],
+                [np.sum(dN_dzeta * x), np.sum(dN_dzeta * y), np.sum(dN_dzeta * z)],
+            ], dtype=float)
+            detJ = float(np.linalg.det(J))
+            if detJ <= 0.0:
+                raise ValueError(f"Hex8 elem {elem.id} has non-positive Jacobian")
+            vol_factor = detJ * w
 
             for i in range(8):
                 idx = 3 * i
@@ -339,6 +341,7 @@ def _add_element_face_traction_consistent_3d(mesh: Any, elem: Any, node_lookup: 
 
         nids = [elem.node_ids[i] for i in face_nodes[local_face]]
         nodes = [node_lookup[nid] for nid in nids]
+        xyz = np.array([[n.x, n.y, n.z] for n in nodes], dtype=float)
 
         # Use 2x2 Gauss integration on face
         a = 1.0 / np.sqrt(3.0)
@@ -348,16 +351,26 @@ def _add_element_face_traction_consistent_3d(mesh: Any, elem: Any, node_lookup: 
         tvec = np.array([float(tx), float(ty), float(tz)], dtype=float)
 
         for xi, eta, w in gps:
-            # Bilinear shape functions for face
             N_face = np.array([
                 (1-xi)*(1-eta)/4,  # node 0 of face
                 (1+xi)*(1-eta)/4,  # node 1 of face
                 (1+xi)*(1+eta)/4,  # node 2 of face
                 (1-xi)*(1+eta)/4,  # node 3 of face
-            ])
-
-            # For simplicity, assume unit area (could compute actual face area)
-            area_factor = 1.0 * w
+            ], dtype=float)
+            dN_dxi = 0.25 * np.array(
+                [-(1.0 - eta), (1.0 - eta), (1.0 + eta), -(1.0 + eta)],
+                dtype=float,
+            )
+            dN_deta = 0.25 * np.array(
+                [-(1.0 - xi), -(1.0 + xi), (1.0 + xi), (1.0 - xi)],
+                dtype=float,
+            )
+            dx_dxi = dN_dxi @ xyz
+            dx_deta = dN_deta @ xyz
+            area_scale = float(np.linalg.norm(np.cross(dx_dxi, dx_deta)))
+            if area_scale <= 0.0:
+                raise ValueError(f"Hex8 elem {elem.id} face {local_face} has zero area")
+            area_factor = area_scale * w
 
             for i in range(4):
                 global_node_idx = face_nodes[local_face][i]
