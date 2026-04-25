@@ -5,12 +5,7 @@ from fem.assemble import assemble_global_stiffness_sparse
 from fem.helper import select_node_ids_by_x, select_node_ids_by_xz
 from fem.boundary import BoundaryCondition3D, build_load_vector_3d, apply_dirichlet_bc_3d
 from fem.solve import solve_linear_system_sparse
-from fem.post import (
-    export_nodal_displacements_csv,
-    export_hex8_element_stress_csv,
-    export_hex8_nodal_stress_csv,
-    export_vtk_from_csv_3d,
-)
+import fem.post as post
 
 # Read mesh and material data from Abaqus input.
 mesh = read_hex8_3d_abaqus(
@@ -54,26 +49,26 @@ K_mod, F_mod = apply_dirichlet_bc_3d(K, F, bc)
 U = solve_linear_system_sparse(K_mod, F_mod)
 
 # Export nodal displacements and stresses.
-export_nodal_displacements_csv(
+post.displacement.export_nodal_displacement(
     mesh=mesh,
     U=U,
     path=r"results\cantilever_beam_hex8_nodal_displacements.csv",
 )
 
-export_hex8_element_stress_csv(
+post.stress.export_hex8_element_stress(
     mesh=mesh,
     U=U,
     path=r"results\cantilever_beam_hex8_element_stress.csv",
 )
 
-export_hex8_nodal_stress_csv(
+post.stress.export_hex8_nodal_stress(
     mesh=mesh,
     U=U,
     path=r"results\cantilever_beam_hex8_nodal_stress.csv",
 )
 
 # Export VTK for visualization.
-export_vtk_from_csv_3d(
+post.vtk.export_from_csv_3d(
     mesh=mesh,
     disp_csv_path=r"results\cantilever_beam_hex8_nodal_displacements.csv",
     elem_csv_path=r"results\cantilever_beam_hex8_element_stress.csv",

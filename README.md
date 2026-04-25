@@ -37,7 +37,7 @@
   构造载荷向量并施加边界条件
 - `src/fem/solve.py`
   求解线性方程组
-- `src/fem/post.py`
+- `src/fem/post/`
   导出位移、应力和 VTK 结果
 - `src/fem/helper.py`
   按几何位置选择节点或边，用于施加载荷和约束

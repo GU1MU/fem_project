@@ -3,7 +3,7 @@ from typing import Dict, Optional, Sequence
 
 import numpy as np
 
-from .mesh import Mesh2DProtocol, Mesh3DProtocol
+from ..mesh import Mesh2DProtocol, Mesh3DProtocol
 
 
 def _build_vtk_cells(mesh, node_id_to_pt_idx: Dict[int, int]):
@@ -302,7 +302,7 @@ def _write_vtk(
                     f.write(f"{val}\n")
 
 
-def export_vtk_from_csv(
+def export_from_csv(
     mesh,
     disp_csv_path: str,
     elem_csv_path: Optional[str],
@@ -339,7 +339,7 @@ def export_vtk_from_csv(
 
     if polar:
         if polar_center is None:
-            raise ValueError("export_vtk_from_csv: polar_center required when polar=True")
+            raise ValueError("export_from_csv: polar_center required when polar=True")
         node_disp = convert_nodal_displacement_to_polar(mesh, node_disp, polar_center)
 
     nodal_fields: Dict[str, Dict[int, float]] = {}
@@ -406,12 +406,12 @@ def export_vtk_from_csv(
     node_id_to_pt_idx: Dict[int, int] = {node.id: i for i, node in enumerate(mesh.nodes)}
     cells, cell_types, elems_for_cell = _build_vtk_cells(mesh, node_id_to_pt_idx)
     if not cells:
-        raise ValueError("export_vtk_from_csv: no supported elements")
+        raise ValueError("export_from_csv: no supported elements")
 
     _write_vtk(mesh, cells, cell_types, elems_for_cell, node_disp, field_data, vtk_path, nodal_fields)
 
 
-def export_vtk_from_csv_3d(
+def export_from_csv_3d(
     mesh: Mesh3DProtocol,
     disp_csv_path: str,
     elem_csv_path: Optional[str],
@@ -419,7 +419,7 @@ def export_vtk_from_csv_3d(
     nodal_stress_csv_path: Optional[str] = None,
 ) -> None:
     """Backward-compatible wrapper for 3D VTK export."""
-    export_vtk_from_csv(
+    export_from_csv(
         mesh=mesh,
         disp_csv_path=disp_csv_path,
         elem_csv_path=elem_csv_path,
