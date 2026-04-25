@@ -38,7 +38,7 @@ def export_nodal_displacements_csv(
         writer = csv.writer(f)
         writer.writerow(header)
 
-        for nid in mesh.dof_manager.node_ids:
+        for nid in mesh.node_ids:
             node: Node2D = node_lookup[nid]
             dofs = mesh.node_dofs(nid)
             disp_vals = [U[dof] for dof in dofs]
@@ -169,7 +169,7 @@ def export_tri3_nodal_stress_csv(
         writer = csv.writer(f)
         writer.writerow(["node_id", "x", "y", "sig_x", "sig_y", "tau_xy", "mises"])
 
-        for nid in mesh.dof_manager.node_ids:
+        for nid in mesh.node_ids:
             node = node_lookup[nid]
             if counts.get(nid, 0) == 0:
                 sig_x = sig_y = tau_xy = 0.0
@@ -304,7 +304,7 @@ def export_quad4_nodal_stress_csv(
         writer = csv.writer(f)
         writer.writerow(["node_id", "x", "y", "sig_x", "sig_y", "tau_xy", "mises"])
 
-        for nid in mesh.dof_manager.node_ids:
+        for nid in mesh.node_ids:
             node = node_lookup[nid]
             if counts.get(nid, 0) == 0:
                 sig_x = sig_y = tau_xy = 0.0
@@ -361,7 +361,7 @@ def export_quad8_nodal_stress_csv(
         writer = csv.writer(f)
         writer.writerow(["node_id", "x", "y", "sig_x", "sig_y", "tau_xy", "mises"])
 
-        for nid in mesh.dof_manager.node_ids:
+        for nid in mesh.node_ids:
             node = node_lookup[nid]
             if counts.get(nid, 0) == 0:
                 sig_x = sig_y = tau_xy = 0.0
@@ -1186,7 +1186,7 @@ def export_nodal_displacements_csv_3d(
         writer = csv.writer(f)
         writer.writerow(header)
 
-        for nid in mesh.dof_manager.node_ids:
+        for nid in mesh.node_ids:
             node: Node3D = node_lookup[nid]
             dofs = mesh.node_dofs(nid)
             disp_vals = [U[dof] for dof in dofs]
@@ -1256,7 +1256,7 @@ def export_hex8_nodal_stress_csv(
         writer = csv.writer(f)
         writer.writerow(header)
 
-        for nid in mesh.dof_manager.node_ids:
+        for nid in mesh.node_ids:
             node = node_lookup[nid]
 
             # Find elements connected to this node
@@ -1375,7 +1375,7 @@ def export_tet4_nodal_stress_csv(
         writer = csv.writer(f)
         writer.writerow(header)
 
-        for nid in mesh.dof_manager.node_ids:
+        for nid in mesh.node_ids:
             node = node_lookup[nid]
 
             connected_elems = [elem for elem in mesh.elements if nid in elem.node_ids]
@@ -1476,7 +1476,7 @@ def export_tet10_nodal_stress_csv(
         writer = csv.writer(f)
         writer.writerow(header)
 
-        for nid in mesh.dof_manager.node_ids:
+        for nid in mesh.node_ids:
             node = node_lookup[nid]
 
             connected_elems = [elem for elem in mesh.elements if nid in elem.node_ids]
