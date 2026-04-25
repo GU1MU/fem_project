@@ -52,13 +52,3 @@ class DofMap:
             for comp in range(self.dofs_per_node):
                 seq.append((nid, comp, self.global_dof(nid, comp)))
         return seq
-
-
-class DofManager2D(DofMap):
-    """Compatibility alias for 2D DOF maps."""
-    pass
-
-
-class DofManager3D(DofMap):
-    """Compatibility alias for 3D DOF maps."""
-    pass

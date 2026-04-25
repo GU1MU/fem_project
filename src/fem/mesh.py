@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, List, Protocol, Sequence, Type, runtime_checkable
+from typing import Any, Dict, List, Protocol, Sequence, runtime_checkable
 
-from .dof_manager import DofMap, DofManager2D, DofManager3D
+from .dof_manager import DofMap
 
 
 @dataclass
@@ -39,25 +39,24 @@ class Mesh2DProtocol(Protocol):
 
 class _DofMappedMeshMixin:
     """Shared DOF access for mesh containers."""
-    dof_manager_cls: ClassVar[Type[DofMap]]
 
     def __post_init__(self):
-        self.dof_manager = self.dof_manager_cls.from_nodes(self.nodes, self.dofs_per_node)
+        self.dof_map = DofMap.from_nodes(self.nodes, self.dofs_per_node)
 
     @property
     def node_ids(self):
         """Node ids in global DOF order."""
-        return self.dof_manager.node_ids
+        return self.dof_map.node_ids
 
     @property
     def num_dofs(self) -> int:
         """Total number of DOFs."""
-        return self.dof_manager.num_dofs
+        return self.dof_map.num_dofs
 
     @property
     def num_nodes(self) -> int:
         """Number of nodes."""
-        return self.dof_manager.num_nodes
+        return self.dof_map.num_nodes
 
     @property
     def num_elements(self) -> int:
@@ -66,19 +65,19 @@ class _DofMappedMeshMixin:
 
     def global_dof(self, node_id: int, component: int) -> int:
         """Return global DOF index for a node component."""
-        return self.dof_manager.global_dof(node_id, component)
+        return self.dof_map.global_dof(node_id, component)
 
     def node_dofs(self, node_id: int):
         """Return global DOF indices for a node."""
-        return self.dof_manager.node_dofs(node_id)
+        return self.dof_map.node_dofs(node_id)
 
     def element_dofs(self, elem):
         """Return global DOF indices for an element."""
-        return self.dof_manager.element_dofs(elem.node_ids)
+        return self.dof_map.element_dofs(elem.node_ids)
 
     def generate_global_dof_sequence(self):
         """Generate (node_id, component, dof_id) tuples."""
-        return self.dof_manager.generate_global_dof_sequence()
+        return self.dof_map.generate_global_dof_sequence()
 
 
 @dataclass
@@ -87,8 +86,7 @@ class TrussMesh2D(_DofMappedMeshMixin):
     nodes: List[Node2D]
     elements: List[Element2D]
     dofs_per_node: int = 2
-    dof_manager_cls: ClassVar[Type[DofManager2D]] = DofManager2D
-    dof_manager: DofManager2D = field(init=False)
+    dof_map: DofMap = field(init=False)
 
 
 @dataclass
@@ -97,8 +95,7 @@ class BeamMesh2D(_DofMappedMeshMixin):
     nodes: List[Node2D]
     elements: List[Element2D]
     dofs_per_node: int = 3
-    dof_manager_cls: ClassVar[Type[DofManager2D]] = DofManager2D
-    dof_manager: DofManager2D = field(init=False)
+    dof_map: DofMap = field(init=False)
 
 
 @dataclass
@@ -107,8 +104,7 @@ class PlaneMesh2D(_DofMappedMeshMixin):
     nodes: List[Node2D]
     elements: List[Element2D]
     dofs_per_node: int = 2
-    dof_manager_cls: ClassVar[Type[DofManager2D]] = DofManager2D
-    dof_manager: DofManager2D = field(init=False)
+    dof_map: DofMap = field(init=False)
 
 
 @dataclass
@@ -149,8 +145,7 @@ class HexMesh3D(_DofMappedMeshMixin):
     nodes: List[Node3D]
     elements: List[Element3D]
     dofs_per_node: int = 3
-    dof_manager_cls: ClassVar[Type[DofManager3D]] = DofManager3D
-    dof_manager: DofManager3D = field(init=False)
+    dof_map: DofMap = field(init=False)
 
 
 @dataclass
@@ -159,5 +154,4 @@ class TetMesh3D(_DofMappedMeshMixin):
     nodes: List[Node3D]
     elements: List[Element3D]
     dofs_per_node: int = 3
-    dof_manager_cls: ClassVar[Type[DofManager3D]] = DofManager3D
-    dof_manager: DofManager3D = field(init=False)
+    dof_map: DofMap = field(init=False)
