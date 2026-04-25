@@ -69,45 +69,10 @@ def export_truss2d_element_stress_csv(
         ])
 
         for elem in mesh.elements:
-            if len(elem.node_ids) != 2:
-                raise ValueError(
-                    f"Truss2D elem must have 2 nodes, elem {elem.id} node_ids={elem.node_ids}"
-                )
             ni_id, nj_id = elem.node_ids
-
-            ni: Node2D = node_lookup[ni_id]
-            nj: Node2D = node_lookup[nj_id]
-
-            dx = nj.x - ni.x
-            dy = nj.y - ni.y
-            L = (dx**2 + dy**2) ** 0.5
-            if L == 0.0:
-                raise ValueError(f"elem {elem.id} has zero length")
-
-            c = dx / L
-            s = dy / L
-
-            try:
-                E = float(elem.props["E"])
-            except KeyError:
-                raise KeyError(f"elem {elem.id} missing E in props={elem.props}")
-
-            dof_ix = mesh.global_dof(ni_id, 0)
-            dof_iy = mesh.global_dof(ni_id, 1)
-            dof_jx = mesh.global_dof(nj_id, 0)
-            dof_jy = mesh.global_dof(nj_id, 1)
-
-            uix = U[dof_ix]
-            uiy = U[dof_iy]
-            ujx = U[dof_jx]
-            ujy = U[dof_jy]
-
-            u_i_L = c * uix + s * uiy
-            u_j_L = c * ujx + s * ujy
-
-            axial_strain = (u_j_L - u_i_L) / L
-            axial_stress = E * axial_strain
-            mises_stress = abs(axial_stress)
+            axial_strain, axial_stress, mises_stress = get_element_kernel(
+                elem.type
+            ).element_stress(mesh, elem, U, node_lookup)
 
             writer.writerow([
                 elem.id,
@@ -119,307 +84,20 @@ def export_truss2d_element_stress_csv(
             ])
 
 
-def _compute_D_plane_stress(E: float, nu: float) -> np.ndarray:
-    """Plane stress D matrix."""
-    coef = E / (1.0 - nu ** 2)
-    return coef * np.array([
-        [1.0,    nu,           0.0],
-        [nu,     1.0,          0.0],
-        [0.0,    0.0, (1.0 - nu) / 2.0],
-    ], dtype=float)
-
-
-def _compute_D_plane_strain(E: float, nu: float) -> np.ndarray:
-    """Plane strain D matrix."""
-    lam = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
-    mu = E / (2.0 * (1.0 + nu))
-    return np.array([
-        [lam + 2.0 * mu, lam,            0.0],
-        [lam,            lam + 2.0 * mu, 0.0],
-        [0.0,            0.0,            mu],
-    ], dtype=float)
-
-
-def _quad4_shape_grad_xi_eta(xi: float, eta: float) -> np.ndarray:
-    """Return dN/dxi and dN/deta for bilinear Quad4."""
-    dN_dxi = np.array(
-        [-(1.0 - eta), (1.0 - eta), (1.0 + eta), -(1.0 + eta)],
-        dtype=float,
-    ) * 0.25
-    dN_deta = np.array(
-        [-(1.0 - xi), -(1.0 + xi), (1.0 + xi), (1.0 - xi)],
-        dtype=float,
-    ) * 0.25
-    return np.vstack([dN_dxi, dN_deta])
-
-
-def _quad8_shape_funcs_grads(xi: float, eta: float):
-    """Return N, dN/dxi, dN/deta for serendipity Quad8."""
-    N = np.zeros(8, dtype=float)
-    dN_dxi = np.zeros(8, dtype=float)
-    dN_deta = np.zeros(8, dtype=float)
-
-    N[0] = 0.25 * (1.0 - xi) * (1.0 - eta) * (-xi - eta - 1.0)
-    N[1] = 0.25 * (1.0 + xi) * (1.0 - eta) * (xi - eta - 1.0)
-    N[2] = 0.25 * (1.0 + xi) * (1.0 + eta) * (xi + eta - 1.0)
-    N[3] = 0.25 * (1.0 - xi) * (1.0 + eta) * (-xi + eta - 1.0)
-    N[4] = 0.5 * (1.0 - xi * xi) * (1.0 - eta)
-    N[5] = 0.5 * (1.0 + xi) * (1.0 - eta * eta)
-    N[6] = 0.5 * (1.0 - xi * xi) * (1.0 + eta)
-    N[7] = 0.5 * (1.0 - xi) * (1.0 - eta * eta)
-
-    dN_dxi[0] = 0.25 * (-(1.0 - eta) * (-xi - eta - 1.0) + (1.0 - xi) * (1.0 - eta) * (-1.0))
-    dN_dxi[1] = 0.25 * ((1.0 - eta) * (xi - eta - 1.0) + (1.0 + xi) * (1.0 - eta) * (1.0))
-    dN_dxi[2] = 0.25 * ((1.0 + eta) * (xi + eta - 1.0) + (1.0 + xi) * (1.0 + eta) * (1.0))
-    dN_dxi[3] = 0.25 * (-(1.0 + eta) * (-xi + eta - 1.0) + (1.0 - xi) * (1.0 + eta) * (-1.0))
-    dN_dxi[4] = -xi * (1.0 - eta)
-    dN_dxi[5] = 0.5 * (1.0 - eta * eta)
-    dN_dxi[6] = -xi * (1.0 + eta)
-    dN_dxi[7] = -0.5 * (1.0 - eta * eta)
-
-    dN_deta[0] = 0.25 * (-(1.0 - xi) * (-xi - eta - 1.0) + (1.0 - xi) * (1.0 - eta) * (-1.0))
-    dN_deta[1] = 0.25 * (-(1.0 + xi) * (xi - eta - 1.0) + (1.0 + xi) * (1.0 - eta) * (-1.0))
-    dN_deta[2] = 0.25 * ((1.0 + xi) * (xi + eta - 1.0) + (1.0 + xi) * (1.0 + eta) * (1.0))
-    dN_deta[3] = 0.25 * ((1.0 - xi) * (-xi + eta - 1.0) + (1.0 - xi) * (1.0 + eta) * (1.0))
-    dN_deta[4] = -0.5 * (1.0 - xi * xi)
-    dN_deta[5] = -(1.0 + xi) * eta
-    dN_deta[6] = 0.5 * (1.0 - xi * xi)
-    dN_deta[7] = -(1.0 - xi) * eta
-
-    return N, dN_dxi, dN_deta
-
-
-def _lagrange_weights_1d(points, x):
-    """Return Lagrange weights at x."""
-    weights = []
-    for i, xi in enumerate(points):
-        w = 1.0
-        for j, xj in enumerate(points):
-            if i != j:
-                w *= (x - xj) / (xi - xj)
-        weights.append(w)
-    return weights
-
-
-def _extrapolate_from_gp(gp_vals, xi_pts, eta_pts, node_coords):
-    """Extrapolate GP values to nodes using tensor Lagrange."""
-    n_eta = len(eta_pts)
-    node_vals = []
-    for xi_n, eta_n in node_coords:
-        wx = _lagrange_weights_1d(xi_pts, xi_n)
-        wy = _lagrange_weights_1d(eta_pts, eta_n)
-        val = np.zeros(gp_vals.shape[1], dtype=float)
-        for i in range(len(xi_pts)):
-            for j in range(len(eta_pts)):
-                idx = i * n_eta + j
-                val += gp_vals[idx] * (wx[i] * wy[j])
-        node_vals.append(val)
-    return np.array(node_vals)
-
-
 def _quad4_element_nodal_stress(mesh, elem, U, node_lookup, gauss_order):
     """Return Quad4 nodal stress by extrapolation."""
-    if gauss_order != 2:
-        raise ValueError("gauss_order must be 2 for Quad4 extrapolation")
-
-    try:
-        E = float(elem.props["E"])
-        nu = float(elem.props["nu"])
-    except KeyError as e:
-        raise KeyError(f"elem {elem.id} missing '{e.args[0]}' in props={elem.props}")
-
-    pt = str(elem.props.get("plane_type", "stress")).lower()
-    if pt.startswith("stress"):
-        D = _compute_D_plane_stress(E, nu)
-        plane_type = "stress"
-    elif pt.startswith("strain"):
-        D = _compute_D_plane_strain(E, nu)
-        plane_type = "strain"
-    else:
-        raise ValueError(f"elem {elem.id} invalid plane_type={elem.props.get('plane_type')}")
-
-    nodes = [node_lookup[i] for i in elem.node_ids]
-    x = np.array([n.x for n in nodes], dtype=float)
-    y = np.array([n.y for n in nodes], dtype=float)
-    dofs = mesh.element_dofs(elem)
-    u_e = U[dofs]
-
-    a = 1.0 / np.sqrt(3.0)
-    xi_pts = [-a, a]
-    eta_pts = [-a, a]
-    gps = [(xi, eta) for xi in xi_pts for eta in eta_pts]
-
-    gp_sigmas = []
-    for xi, eta in gps:
-        dN = _quad4_shape_grad_xi_eta(xi, eta)
-        J = np.array(
-            [[np.dot(dN[0], x), np.dot(dN[0], y)],
-             [np.dot(dN[1], x), np.dot(dN[1], y)]],
-            dtype=float,
-        )
-        detJ = float(np.linalg.det(J))
-        if detJ == 0.0:
-            raise ValueError(f"elem {elem.id} singular Jacobian")
-        invJ = np.linalg.inv(J)
-        dN_xy = invJ @ dN
-
-        B = np.zeros((3, 8), dtype=float)
-        for a_i in range(4):
-            dN_dx = dN_xy[0, a_i]
-            dN_dy = dN_xy[1, a_i]
-            c = 2 * a_i
-            B[0, c] = dN_dx
-            B[1, c + 1] = dN_dy
-            B[2, c] = dN_dy
-            B[2, c + 1] = dN_dx
-
-        eps = B @ u_e
-        sigma = D @ eps
-        gp_sigmas.append(sigma)
-
-    gp_vals = np.vstack(gp_sigmas)
-    node_coords = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
-    node_vals = _extrapolate_from_gp(gp_vals, xi_pts, eta_pts, node_coords)
-    return node_vals, plane_type, nu
+    return get_element_kernel(elem.type).nodal_stress(mesh, elem, U, node_lookup, gauss_order)
 
 
 def _quad8_element_nodal_stress(mesh, elem, U, node_lookup, gauss_order):
     """Return Quad8 nodal stress by extrapolation."""
-    if gauss_order not in (2, 3):
-        raise ValueError("gauss_order must be 2 or 3 for Quad8 extrapolation")
-
-    try:
-        E = float(elem.props["E"])
-        nu = float(elem.props["nu"])
-    except KeyError as e:
-        raise KeyError(f"elem {elem.id} missing '{e.args[0]}' in props={elem.props}")
-
-    pt = str(elem.props.get("plane_type", "stress")).lower()
-    if pt.startswith("stress"):
-        D = _compute_D_plane_stress(E, nu)
-        plane_type = "stress"
-    elif pt.startswith("strain"):
-        D = _compute_D_plane_strain(E, nu)
-        plane_type = "strain"
-    else:
-        raise ValueError(f"elem {elem.id} invalid plane_type={elem.props.get('plane_type')}")
-
-    nodes = [node_lookup[i] for i in elem.node_ids]
-    x = np.array([n.x for n in nodes], dtype=float)
-    y = np.array([n.y for n in nodes], dtype=float)
-    dofs = mesh.element_dofs(elem)
-    u_e = U[dofs]
-
-    if gauss_order == 2:
-        a = 1.0 / np.sqrt(3.0)
-        xi_pts = [-a, a]
-        eta_pts = [-a, a]
-    else:
-        r = np.sqrt(3.0 / 5.0)
-        xi_pts = [-r, 0.0, r]
-        eta_pts = [-r, 0.0, r]
-
-    gps = [(xi, eta) for xi in xi_pts for eta in eta_pts]
-
-    gp_sigmas = []
-    for xi, eta in gps:
-        _, dN_dxi, dN_deta = _quad8_shape_funcs_grads(xi, eta)
-        J = np.array(
-            [[np.dot(dN_dxi, x), np.dot(dN_dxi, y)],
-             [np.dot(dN_deta, x), np.dot(dN_deta, y)]],
-            dtype=float,
-        )
-        detJ = float(np.linalg.det(J))
-        if detJ == 0.0:
-            raise ValueError(f"elem {elem.id} singular Jacobian")
-        invJ = np.linalg.inv(J)
-        dN_xy = invJ @ np.vstack([dN_dxi, dN_deta])
-
-        B = np.zeros((3, 16), dtype=float)
-        for a_i in range(8):
-            dN_dx = dN_xy[0, a_i]
-            dN_dy = dN_xy[1, a_i]
-            c = 2 * a_i
-            B[0, c] = dN_dx
-            B[1, c + 1] = dN_dy
-            B[2, c] = dN_dy
-            B[2, c + 1] = dN_dx
-
-        eps = B @ u_e
-        sigma = D @ eps
-        gp_sigmas.append(sigma)
-
-    gp_vals = np.vstack(gp_sigmas)
-    node_coords = [
-        (-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0),
-        (0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0),
-    ]
-    node_vals = _extrapolate_from_gp(gp_vals, xi_pts, eta_pts, node_coords)
-    return node_vals, plane_type, nu
+    return get_element_kernel(elem.type).nodal_stress(mesh, elem, U, node_lookup, gauss_order)
 
 
 def _tri3_element_stress(mesh, elem, U, node_lookup):
     """Return Tri3 constant stress and plane type."""
-    if len(elem.node_ids) != 3:
-        raise ValueError(
-            f"Tri3 elem must have 3 nodes, elem {elem.id} node_ids={elem.node_ids}"
-        )
-
-    n1_id, n2_id, n3_id = elem.node_ids
-    n1: Node2D = node_lookup[n1_id]
-    n2: Node2D = node_lookup[n2_id]
-    n3: Node2D = node_lookup[n3_id]
-
-    x1, y1 = n1.x, n1.y
-    x2, y2 = n2.x, n2.y
-    x3, y3 = n3.x, n3.y
-
-    detJ = (
-        x2 * y3 - x3 * y2
-        - x1 * y3 + x3 * y1
-        + x1 * y2 - x2 * y1
-    )
-    A = 0.5 * detJ
-    if A <= 0.0:
-        raise ValueError(f"elem {elem.id} has non-positive area")
-
-    b1 = y2 - y3
-    b2 = y3 - y1
-    b3 = y1 - y2
-
-    c1 = x3 - x2
-    c2 = x1 - x3
-    c3 = x2 - x1
-
-    coef = 1.0 / (2.0 * A)
-    B = coef * np.array([
-        [b1, 0.0, b2, 0.0, b3, 0.0],
-        [0.0, c1, 0.0, c2, 0.0, c3],
-        [c1, b1, c2, b2, c3, b3],
-    ], dtype=float)
-
-    dofs = mesh.element_dofs(elem)
-    u_e = U[dofs]
-    eps = B @ u_e
-
-    try:
-        E = float(elem.props["E"])
-        nu = float(elem.props["nu"])
-    except KeyError as e:
-        raise KeyError(f"elem {elem.id} missing {e.args[0]} in props={elem.props}")
-
-    plane_type = str(elem.props.get("plane_type", "stress")).lower()
-    if plane_type.startswith("stress"):
-        D = _compute_D_plane_stress(E, nu)
-        plane_tag = "stress"
-    elif plane_type.startswith("strain"):
-        D = _compute_D_plane_strain(E, nu)
-        plane_tag = "strain"
-    else:
-        raise ValueError(f"elem {elem.id} invalid plane_type")
-
-    sigma = D @ eps
-    return sigma, plane_tag, nu
+    node_vals, plane_type, nu = get_element_kernel(elem.type).nodal_stress(mesh, elem, U, node_lookup)
+    return node_vals[0], plane_type, nu
 
 
 def export_tri3_plane_element_stress_csv(
@@ -1572,22 +1250,6 @@ def export_hex8_nodal_stress_csv(
 
     node_lookup = {node.id: node for node in mesh.nodes}
 
-    # Gauss points for extrapolation
-    if gauss_order == 2:
-        a = 1.0 / np.sqrt(3.0)
-        gps = [
-            (-a, -a, -a, 1.0),
-            (a, -a, -a, 1.0),
-            (a, a, -a, 1.0),
-            (-a, a, -a, 1.0),
-            (-a, -a, a, 1.0),
-            (a, -a, a, 1.0),
-            (a, a, a, 1.0),
-            (-a, a, a, 1.0),
-        ]
-    else:
-        raise ValueError(f"Unsupported gauss_order {gauss_order}, only 2 supported")
-
     header = ["node_id", "x", "y", "z", "sig_x", "sig_y", "sig_z", "tau_xy", "tau_yz", "tau_zx", "mises"]
 
     with open(path, "w", newline="", encoding="utf-8") as f:
@@ -1610,16 +1272,19 @@ def export_hex8_nodal_stress_csv(
             count = 0
 
             for elem in connected_elems:
-                # Compute stresses at Gauss points
-                gp_stresses = []
-                for xi, eta, zeta, w in gps:
-                    stress = _compute_hex8_element_stress_at_point(mesh, elem, U, node_lookup, xi, eta, zeta)
-                    gp_stresses.append(stress)
-
-                # Simple average for now (could implement proper extrapolation)
-                elem_stress = np.mean(gp_stresses, axis=0)
-                stress_sum += elem_stress
+                et = str(elem.type).lower()
+                if et != "hex8":
+                    continue
+                node_vals = get_element_kernel(elem.type).nodal_stress(
+                    mesh, elem, U, node_lookup, gauss_order
+                )
+                local_idx = elem.node_ids.index(nid)
+                stress_sum += node_vals[local_idx]
                 count += 1
+
+            if count == 0:
+                writer.writerow([nid, node.x, node.y, node.z, 0, 0, 0, 0, 0, 0, 0])
+                continue
 
             avg_stress = stress_sum / count
             sig_x, sig_y, sig_z, tau_xy, tau_yz, tau_zx = avg_stress
@@ -1634,18 +1299,8 @@ def export_hex8_nodal_stress_csv(
 # ============================================================
 
 _TET4_CENTROID = (0.25, 0.25, 0.25)
-_TET10_NATURAL_NODE_COORDS = [
-    (0.0, 0.0, 0.0),
-    (1.0, 0.0, 0.0),
-    (0.0, 1.0, 0.0),
-    (0.0, 0.0, 1.0),
-    (0.5, 0.0, 0.0),
-    (0.5, 0.5, 0.0),
-    (0.0, 0.5, 0.0),
-    (0.0, 0.0, 0.5),
-    (0.5, 0.0, 0.5),
-    (0.0, 0.5, 0.5),
-]
+
+
 def _tet4_element_volume(elem, node_lookup: Dict[int, Node3D]) -> float:
     """Return Tet4 element volume."""
     return get_element_kernel(elem.type).volume(None, elem, node_lookup)
@@ -1736,10 +1391,9 @@ def export_tet4_nodal_stress_csv(
                 et = str(elem.type).lower()
                 if "tet4" not in et:
                     continue
-                # For Tet4, stress is constant throughout the element (linear tet)
-                stress = _compute_tet4_element_stress_at_point(
-                    mesh, elem, U, node_lookup, *_TET4_CENTROID
-                )
+                node_vals = get_element_kernel(elem.type).nodal_stress(mesh, elem, U, node_lookup)
+                local_idx = elem.node_ids.index(nid)
+                stress = node_vals[local_idx]
                 weight = _tet4_element_volume(elem, node_lookup)
                 stress_sum += weight * np.asarray(stress, dtype=float)
                 weight_sum += weight
@@ -1839,10 +1493,8 @@ def export_tet10_nodal_stress_csv(
                 if "tet10" not in et:
                     continue
                 local_idx = elem.node_ids.index(nid)
-                xi, eta, zeta = _TET10_NATURAL_NODE_COORDS[local_idx]
-                stress = _compute_tet10_element_stress_at_point(
-                    mesh, elem, U, node_lookup, xi, eta, zeta
-                )
+                node_vals = get_element_kernel(elem.type).nodal_stress(mesh, elem, U, node_lookup)
+                stress = node_vals[local_idx]
                 weight = _tet10_element_volume(elem, node_lookup)
                 stress_sum += weight * np.asarray(stress, dtype=float)
                 weight_sum += weight

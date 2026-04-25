@@ -27,6 +27,9 @@ def tet4_gauss_points():
     return [(0.25, 0.25, 0.25, 1.0 / 6.0)]
 
 
+TET4_CENTROID = (0.25, 0.25, 0.25)
+
+
 def tet10_shape_funcs_grads(xi: float, eta: float, zeta: float):
     """Return N and natural gradients for Tet10."""
     L1 = 1.0 - xi - eta - zeta
@@ -110,6 +113,20 @@ def tet10_gauss_points():
         (a, b, a, w),
         (a, a, b, w),
     ]
+
+
+TET10_NATURAL_NODE_COORDS = [
+    (0.0, 0.0, 0.0),
+    (1.0, 0.0, 0.0),
+    (0.0, 1.0, 0.0),
+    (0.0, 0.0, 1.0),
+    (0.5, 0.0, 0.0),
+    (0.5, 0.5, 0.0),
+    (0.0, 0.5, 0.0),
+    (0.0, 0.0, 0.5),
+    (0.5, 0.0, 0.5),
+    (0.0, 0.5, 0.5),
+]
 
 
 def tri6_gauss_points():
@@ -328,6 +345,17 @@ class Tet4Kernel(_TetKernelBase):
         [0, 1, 2],
     ]
 
+    def nodal_stress(
+        self,
+        mesh: Any,
+        elem: Any,
+        U: np.ndarray,
+        node_lookup: dict[int, Any] | None = None,
+    ) -> np.ndarray:
+        """Return element-nodal stresses using constant Tet4 stress."""
+        stress = self.stress_at(mesh, elem, U, *TET4_CENTROID, node_lookup)
+        return np.tile(stress, (self.node_count, 1))
+
     def face_traction(
         self,
         mesh: Any,
@@ -370,6 +398,19 @@ class Tet10Kernel(_TetKernelBase):
         [0, 1, 3, 4, 8, 7],
         [0, 1, 2, 4, 5, 6],
     ]
+
+    def nodal_stress(
+        self,
+        mesh: Any,
+        elem: Any,
+        U: np.ndarray,
+        node_lookup: dict[int, Any] | None = None,
+    ) -> np.ndarray:
+        """Return stresses evaluated at Tet10 natural node locations."""
+        return np.array([
+            self.stress_at(mesh, elem, U, xi, eta, zeta, node_lookup)
+            for xi, eta, zeta in TET10_NATURAL_NODE_COORDS
+        ], dtype=float)
 
     def face_traction(
         self,

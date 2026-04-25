@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from .base import build_node_lookup
+from .base import build_node_lookup, extrapolate_tensor_product
 from ..materials import compute_plane_elastic_matrix
 
 
@@ -96,6 +96,40 @@ class Quad8PlaneKernel:
         B, _ = self._B_matrix(mesh, elem, xi, eta, node_lookup)
         return D @ (B @ U[mesh.element_dofs(elem)])
 
+    def nodal_stress(
+        self,
+        mesh: Any,
+        elem: Any,
+        U: np.ndarray,
+        node_lookup: dict[int, Any] | None = None,
+        gauss_order: int = 3,
+    ):
+        """Return extrapolated element-nodal stress, plane type, and nu."""
+        if gauss_order not in (2, 3):
+            raise ValueError("gauss_order must be 2 or 3 for Quad8 extrapolation")
+
+        if gauss_order == 2:
+            a = 1.0 / np.sqrt(3.0)
+            xi_pts = [-a, a]
+            eta_pts = [-a, a]
+        else:
+            r = np.sqrt(3.0 / 5.0)
+            xi_pts = [-r, 0.0, r]
+            eta_pts = [-r, 0.0, r]
+
+        gp_vals = np.vstack([
+            self.stress_at(mesh, elem, U, xi, eta, node_lookup)
+            for xi in xi_pts
+            for eta in eta_pts
+        ])
+        node_coords = [
+            (-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0),
+            (0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0),
+        ]
+        node_vals = extrapolate_tensor_product(gp_vals, xi_pts, eta_pts, node_coords)
+        plane_type, nu = self._plane_data(elem)
+        return node_vals, plane_type, nu
+
     def body_force(
         self,
         mesh: Any,
@@ -153,9 +187,22 @@ class Quad8PlaneKernel:
         except KeyError as e:
             raise KeyError(f"elem {elem.id} missing '{e.args[0]}' in props={elem.props}")
 
-        pt = str(elem.props.get("plane_type", "stress")).lower()
+        pt, _ = self._plane_data(elem)
         D = compute_plane_elastic_matrix(E, nu, pt)
         return D, t
+
+    def _plane_data(self, elem: Any):
+        """Return plane type tag and Poisson ratio."""
+        try:
+            nu = float(elem.props["nu"])
+        except KeyError as e:
+            raise KeyError(f"elem {elem.id} missing '{e.args[0]}' in props={elem.props}")
+        pt = str(elem.props.get("plane_type", "stress")).lower()
+        if pt.startswith("stress"):
+            return "stress", nu
+        if pt.startswith("strain"):
+            return "strain", nu
+        raise ValueError(f"elem {elem.id} invalid plane_type={elem.props.get('plane_type')}")
 
     def _thickness(self, elem: Any) -> float:
         """Return plane element thickness."""

@@ -35,6 +35,18 @@ class Tri3PlaneKernel:
         D, _ = self._material_data(elem)
         return D @ (B @ U[mesh.element_dofs(elem)])
 
+    def nodal_stress(
+        self,
+        mesh: Any,
+        elem: Any,
+        U: np.ndarray,
+        node_lookup: dict[int, Any] | None = None,
+    ):
+        """Return element-nodal stress, plane type, and nu."""
+        sigma = self.stress_at(mesh, elem, U, node_lookup)
+        plane_type, nu = self._plane_data(elem)
+        return np.tile(sigma, (3, 1)), plane_type, nu
+
     def body_force(
         self,
         mesh: Any,
@@ -91,9 +103,24 @@ class Tri3PlaneKernel:
             )
 
         t = self._thickness(elem)
-        pt = str(elem.props.get("plane_type", "stress")).lower()
+        pt, _ = self._plane_data(elem)
         D = compute_plane_elastic_matrix(E, nu, pt)
         return D, t
+
+    def _plane_data(self, elem: Any):
+        """Return plane type tag and Poisson ratio."""
+        try:
+            nu = float(elem.props["nu"])
+        except KeyError as e:
+            raise KeyError(
+                f"元素 {elem.id} 的 props 缺少 {e.args[0]}，当前 props={elem.props}"
+            )
+        pt = str(elem.props.get("plane_type", "stress")).lower()
+        if pt.startswith("stress"):
+            return "stress", nu
+        if pt.startswith("strain"):
+            return "strain", nu
+        raise ValueError(f"elem {elem.id} invalid plane_type")
 
     def _thickness(self, elem: Any) -> float:
         """Return plane element thickness."""

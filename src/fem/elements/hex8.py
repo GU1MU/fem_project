@@ -185,6 +185,21 @@ class Hex8Kernel:
         sigma = D @ (B @ U[mesh.element_dofs(elem)])
         return tuple(float(v) for v in sigma)
 
+    def nodal_stress(
+        self,
+        mesh: Any,
+        elem: Any,
+        U: np.ndarray,
+        node_lookup: dict[int, Any] | None = None,
+        gauss_order: int = 2,
+    ) -> np.ndarray:
+        """Return element-nodal stresses using the current Gauss average convention."""
+        gp_vals = np.array([
+            self.stress_at(mesh, elem, U, xi, eta, zeta, node_lookup)
+            for xi, eta, zeta, _ in hex8_gauss_points(gauss_order)
+        ], dtype=float)
+        return np.tile(np.mean(gp_vals, axis=0), (8, 1))
+
     def _material_matrix(self, elem: Any) -> np.ndarray:
         """Return 3D material matrix from element props."""
         try:

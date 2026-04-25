@@ -50,6 +50,32 @@ class Truss2DKernel:
             [-c * s, -s * s, c * s, s * s],
         ], dtype=float)
 
+    def element_stress(
+        self,
+        mesh: Any,
+        elem: Any,
+        U: np.ndarray,
+        node_lookup: dict[int, Any] | None = None,
+    ) -> tuple[float, float, float]:
+        """Return axial strain, axial stress, and equivalent stress."""
+        try:
+            E = float(elem.props["E"])
+        except KeyError:
+            raise KeyError(f"elem {elem.id} missing E in props={elem.props}")
+
+        L, c, s = line2_geometry(mesh, elem, node_lookup)
+        ni_id, nj_id = elem.node_ids
+        uix = U[mesh.global_dof(ni_id, 0)]
+        uiy = U[mesh.global_dof(ni_id, 1)]
+        ujx = U[mesh.global_dof(nj_id, 0)]
+        ujy = U[mesh.global_dof(nj_id, 1)]
+
+        u_i_l = c * uix + s * uiy
+        u_j_l = c * ujx + s * ujy
+        axial_strain = (u_j_l - u_i_l) / L
+        axial_stress = E * axial_strain
+        return float(axial_strain), float(axial_stress), float(abs(axial_stress))
+
 
 class Beam2DKernel:
     """Two-node Euler-Bernoulli beam element kernel."""
