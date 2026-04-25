@@ -1,12 +1,12 @@
-from .io.materials_io import _get_float_from_material, read_materials_as_dict
-from .io.mesh_io_csv import (
+from .materials_io import read_materials_as_dict
+from .mesh_io_csv import (
     read_beam2d_csv,
     read_hex8_csv,
     read_tet4_csv,
     read_tri3_2d_csv,
     read_truss2d_csv,
 )
-from .io.mesh_io_inp import (
+from .mesh_io_inp import (
     read_hex8_3d_abaqus,
     read_quad4_2d_abaqus,
     read_quad8_2d_abaqus,
@@ -17,7 +17,6 @@ from .io.mesh_io_inp import (
 
 __all__ = [
     "read_materials_as_dict",
-    "_get_float_from_material",
     "read_truss2d_csv",
     "read_beam2d_csv",
     "read_tri3_2d_csv",
