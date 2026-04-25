@@ -4,10 +4,13 @@ from typing import Dict, Optional
 import numpy as np
 from .mesh import BeamMesh2D, TrussMesh2D, PlaneMesh2D, Element2D, Node2D, Mesh2DProtocol, HexMesh3D, Element3D, Node3D, Mesh3DProtocol
 from .elements import get_element_kernel
-from .elements.hex8 import hex8_shape_funcs_grads
-from .elements.quad4 import quad4_shape_grad_xi_eta
-from .elements.quad8 import quad8_gauss_points, quad8_shape_funcs_grads
-from .elements.tet import (
+from .elements.hexahedron import hex8_shape_funcs_grads
+from .elements.quadrilateral import (
+    quad4_shape_grad_xi_eta,
+    quad8_gauss_points,
+    quad8_shape_funcs_grads,
+)
+from .elements.tetrahedron import (
     tet4_gauss_points,
     tet4_shape_funcs_grads,
     tet10_gauss_points,

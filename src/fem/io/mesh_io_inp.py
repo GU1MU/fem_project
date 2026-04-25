@@ -575,7 +575,7 @@ def read_tet10_3d_abaqus(
     if not elements:
         raise ValueError(f"No C3D10 *Element data found in {inp_path}")
 
-    from .elements.tet import tet10_gauss_points, tet10_shape_funcs_grads
+    from ..elements.tetrahedron import tet10_gauss_points, tet10_shape_funcs_grads
 
     for e in elements:
         coords = [node_lookup[nid] for nid in e.node_ids]
