@@ -44,6 +44,11 @@ class ModelResult:
         return self.output_dir / f"{self.name}_nodal_stress.csv"
 
     @property
+    def reaction_path(self) -> Path:
+        """Default reaction CSV path."""
+        return self.output_dir / f"{self.name}_reactions.csv"
+
+    @property
     def vtk_path(self) -> Path:
         """Default VTK output path."""
         return self.output_dir / f"{self.name}.vtk"
@@ -97,6 +102,19 @@ class ModelResult:
         path = self._prepare_path(path or self.nodal_stress_path)
         stress.export.nodal(self.mesh, self.U, path, element_type, gauss_order)
 
+    def export_reactions(
+        self,
+        path: str | Path | None = None,
+        component_names: list[str] | None = None,
+    ) -> None:
+        """Export nodal reactions to CSV."""
+        from ..post import displacement
+
+        if component_names is None:
+            component_names = _reaction_component_names(self.mesh.dofs_per_node)
+        path = self._prepare_path(path or self.reaction_path)
+        displacement.export.nodal(self.mesh, self.reactions, path, component_names)
+
     def export_vtk(
         self,
         path: str | Path | None = None,
@@ -131,3 +149,12 @@ def _default_result_name(model: Any, step: Any) -> str:
     if step is not None and getattr(step, "name", None):
         return str(step.name)
     return "result"
+
+
+def _reaction_component_names(dofs_per_node: int) -> list[str]:
+    """Return default reaction component names."""
+    if dofs_per_node == 2:
+        return ["rx", "ry"]
+    if dofs_per_node == 3:
+        return ["rx", "ry", "rz"]
+    return [f"r{component}" for component in range(dofs_per_node)]
