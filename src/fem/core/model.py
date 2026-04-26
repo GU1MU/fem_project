@@ -132,3 +132,105 @@ class FEMModel:
     sections: list[SectionAssignment] = field(default_factory=list)
     steps: list[AnalysisStep] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def get_step(self, step: str | int | AnalysisStep | None = None) -> AnalysisStep | None:
+        """Return an analysis step by name or index."""
+        if step is None:
+            return self.steps[0] if self.steps else None
+        if isinstance(step, AnalysisStep):
+            return step
+        if isinstance(step, int):
+            return self.steps[step]
+        for candidate in self.steps:
+            if candidate.name == step:
+                return candidate
+        raise KeyError(f"analysis step {step} is not defined")
+
+    def boundary_for_step(self, step: str | int | AnalysisStep | None = None) -> Any:
+        """Build solver boundary data for one analysis step."""
+        selected_step = self.get_step(step)
+        if selected_step is None:
+            if self.boundary is None:
+                from ..boundary.condition import BoundaryCondition
+
+                return BoundaryCondition()
+            return self.boundary
+
+        from ..boundary.condition import BoundaryCondition
+
+        boundary = BoundaryCondition()
+        for constraint in selected_step.boundaries:
+            for node_id in self._resolve_node_target(constraint.target):
+                for component in range(
+                    constraint.first_component,
+                    constraint.last_component + 1,
+                ):
+                    self._validate_component(component)
+                    boundary.add_displacement(
+                        node_id,
+                        component - 1,
+                        constraint.value,
+                        self.mesh,
+                    )
+
+        for load in selected_step.cloads:
+            self._validate_component(load.component)
+            for node_id in self._resolve_node_target(load.target):
+                boundary.add_nodal_force(
+                    node_id,
+                    load.component - 1,
+                    load.value,
+                    self.mesh,
+                )
+
+        for surface_load in selected_step.surface_loads:
+            if surface_load.surface not in self.surfaces:
+                raise KeyError(f"surface {surface_load.surface} is not defined")
+            for face in self.surfaces[surface_load.surface].faces:
+                boundary.add_surface_traction(
+                    face.elem_id,
+                    face.local_index,
+                    *surface_load.vector,
+                )
+
+        return boundary
+
+    def assemble_stiffness(self) -> Any:
+        """Assemble sparse global stiffness for this model."""
+        from ..assemble import assemble_global_stiffness_sparse
+
+        return assemble_global_stiffness_sparse(self.mesh)
+
+    def load_vector(self, step: str | int | AnalysisStep | None = None) -> Any:
+        """Build the global load vector for one step."""
+        from ..boundary.loads import build_load_vector
+
+        return build_load_vector(self.mesh, self.boundary_for_step(step))
+
+    def solve(self, step: str | int | AnalysisStep | None = None) -> Any:
+        """Solve one linear static step."""
+        from ..boundary.constraints import apply_dirichlet
+        from ..boundary.loads import build_load_vector
+        from ..solvers import linear
+
+        boundary = self.boundary_for_step(step)
+        K = self.assemble_stiffness()
+        F = build_load_vector(self.mesh, boundary)
+        K_mod, F_mod = apply_dirichlet(K, F, boundary)
+        return linear.solve(K_mod, F_mod)
+
+    def _resolve_node_target(self, target: str | int) -> tuple[int, ...]:
+        """Resolve a node id or named node set."""
+        if isinstance(target, int):
+            return (target,)
+        if target not in self.node_sets:
+            raise KeyError(f"node set {target} is not defined")
+        return self.node_sets[target].node_ids
+
+    def _validate_component(self, component: int) -> None:
+        """Validate a 1-based component against mesh DOFs."""
+        if component < 1 or component > self.mesh.dofs_per_node:
+            raise ValueError(
+                f"component {component} is invalid for mesh with "
+                f"{self.mesh.dofs_per_node} DOFs per node"
+            )

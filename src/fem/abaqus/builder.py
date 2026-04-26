@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..boundary.condition import BoundaryCondition
 from ..core.mesh import Element2D, Element3D, HexMesh3D, Node2D, Node3D, PlaneMesh2D, TetMesh3D
 from ..core.model import (
     AnalysisStep,
@@ -43,11 +42,8 @@ def build_model(deck: AbaqusDeck) -> FEMModel:
     _apply_sections(mesh, deck, materials, element_sets)
     surfaces = _build_surfaces(mesh, deck, element_sets)
     steps = [_build_step(step, mesh) for step in deck.steps]
-    boundary = _build_boundary(mesh, node_sets, steps[0]) if steps else BoundaryCondition()
-
-    return FEMModel(
+    model = FEMModel(
         mesh=mesh,
-        boundary=boundary,
         name=deck.name,
         node_sets=node_sets,
         element_sets=element_sets,
@@ -56,6 +52,8 @@ def build_model(deck: AbaqusDeck) -> FEMModel:
         sections=sections,
         steps=steps,
     )
+    model.boundary = model.boundary_for_step() if steps else None
+    return model
 
 
 def _build_mesh(deck: AbaqusDeck) -> Any:
@@ -171,27 +169,6 @@ def _build_step(step: AbaqusStep, mesh: Any) -> AnalysisStep:
     )
 
 
-def _build_boundary(
-    mesh: Any,
-    node_sets: dict[str, NodeSet],
-    step: AnalysisStep,
-) -> BoundaryCondition:
-    """Build solver boundary data from one model step."""
-    boundary = BoundaryCondition()
-    for constraint in step.boundaries:
-        for node_id in _resolve_node_target(constraint.target, node_sets):
-            for component in range(constraint.first_component, constraint.last_component + 1):
-                _validate_component(mesh, component)
-                boundary.add_displacement(node_id, component - 1, constraint.value, mesh)
-
-    for load in step.cloads:
-        _validate_component(mesh, load.component)
-        for node_id in _resolve_node_target(load.target, node_sets):
-            boundary.add_nodal_force(node_id, load.component - 1, load.value, mesh)
-
-    return boundary
-
-
 def _mesh_dimension(elements: list[AbaqusElement]) -> int:
     """Infer mesh dimension from Abaqus element types."""
     dimensions = {_element_dimension(element.type) for element in elements}
@@ -264,15 +241,6 @@ def _constraint_ranges(
     return [(int(first), int(last), float(boundary.value))]
 
 
-def _resolve_node_target(target: str | int, node_sets: dict[str, NodeSet]) -> tuple[int, ...]:
-    """Resolve a node id or node set name."""
-    if isinstance(target, int):
-        return (target,)
-    if target not in node_sets:
-        raise KeyError(f"node set {target} is not defined")
-    return node_sets[target].node_ids
-
-
 def _resolve_element_target(
     target: str | int,
     element_sets: dict[str, ElementSet],
@@ -291,14 +259,6 @@ def _face_label_to_index(face_label: str) -> int:
     if not label.startswith("S"):
         raise ValueError(f"unsupported Abaqus face label: {face_label}")
     return int(label[1:]) - 1
-
-
-def _validate_component(mesh: Any, component: int) -> None:
-    """Validate a 1-based component against mesh DOFs."""
-    if component < 1 or component > mesh.dofs_per_node:
-        raise ValueError(
-            f"component {component} is invalid for mesh with {mesh.dofs_per_node} DOFs per node"
-        )
 
 
 def _unique_ids(ids: Any) -> tuple[int, ...]:
