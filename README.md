@@ -31,12 +31,16 @@
   读取Abaqus/CSV网格数据和独立材料表，入口为 `io.inp`、`io.csv`、`io.materials`
 - `src/fem/elements/`
   计算各类单元刚度矩阵
+- `src/fem/materials/`
+  定义材料本构矩阵，并把材料按element set赋给模型
+- `src/fem/steps/`
+  定义分析步、约束、载荷和输出请求
 - `src/fem/assemble/`
   装配全局刚度矩阵
 - `src/fem/boundary/`
   定义边界条件、构造载荷向量并施加约束
 - `src/fem/solvers/`
-  求解线性方程组
+  求解线性方程组，并提供静力线性求解流程
 - `src/fem/post/`
   导出位移、应力和 VTK 结果
 - `src/fem/selection/`
@@ -62,32 +66,27 @@ $env:PYTHONPATH = "src"
 
 ## 示例脚本
 
-当前仓库中已有 4 个主示例：
+当前仓库中已有2个主示例：
 
-- `examples/plate_with_hole_quad4.py`
-  2D `Quad4` 开孔板
-- `examples/plate_with_hole_quad8.py`
-  2D `Quad8` 开孔板
-- `examples/cantilever_beam_quad8.py`
-  2D `Quad8` 悬臂梁
 - `examples/cantilever_beam_hex8.py`
-  3D `Hex8` 悬臂梁
+  从Abaqus输入文件读取完整模型的3D `Hex8`悬臂梁
 - `examples/cantilever_beam_hex8_manual_model.py`
   读取inp网格后的手写`mesh-model-solve-result`流程示例
 
 运行示例时，在已激活虚拟环境且设置好 `PYTHONPATH` 后执行，例如：
 
 ```powershell
-python examples\plate_with_hole_quad4.py
 python examples\cantilever_beam_hex8.py
 python examples\cantilever_beam_hex8_manual_model.py
 ```
 
 ## 标准求解流程
 
-示例脚本遵循同一条主线：
+手写流程示例遵循同一条主线：
 
-1. 手写`mesh`并用`FEMModel.from_mesh()`建模，或用`fem.abaqus`读取完整Abaqus模型
-2. 在`FEMModel`中添加材料、集合、截面、step、约束和载荷
-3. 用`model.run()`求解并生成`ModelResult`
-4. 用`ModelResult`或`post`导出位移、反力、应力和可视化结果
+1. 用`fem.io`读取网格，并创建纯数据结构`FEMModel`
+2. 用`selection`构造set，直接写入`model.node_sets`和`model.element_sets`
+3. 用`materials`定义材料并按element set赋值
+4. 用`steps`定义step、位移约束和载荷
+5. 用`solvers.static_linear.solve()`求解并生成`ModelResult`
+6. 用`post`导出位移、应力和可视化结果

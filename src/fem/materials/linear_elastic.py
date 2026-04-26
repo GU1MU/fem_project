@@ -2,6 +2,24 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..core.model import MaterialDefinition
+
+
+def material(
+    name: str,
+    E: float,
+    nu: float,
+    rho: float | None = None,
+    **properties,
+) -> MaterialDefinition:
+    """Return a named linear elastic material."""
+    data = dict(properties)
+    data["E"] = float(E)
+    data["nu"] = float(nu)
+    if rho is not None:
+        data["rho"] = float(rho)
+    return MaterialDefinition(str(name), data)
+
 
 def plane_stress_matrix(E: float, nu: float) -> np.ndarray:
     """Return isotropic plane stress constitutive matrix."""

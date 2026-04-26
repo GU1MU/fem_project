@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from . import linear
+from . import linear, static_linear
 
-__all__ = ["linear"]
+__all__ = ["linear", "static_linear"]
