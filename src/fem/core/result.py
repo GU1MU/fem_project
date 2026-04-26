@@ -142,6 +142,48 @@ class ModelResult:
         return path
 
 
+@dataclass
+class ModelResults:
+    """Collection of solved model step results."""
+    model: Any
+    results: tuple[ModelResult, ...]
+
+    def __post_init__(self) -> None:
+        self.results = tuple(self.results)
+
+    def __iter__(self):
+        """Iterate over step results."""
+        return iter(self.results)
+
+    def __len__(self) -> int:
+        """Return number of step results."""
+        return len(self.results)
+
+    def __getitem__(self, key: int | str) -> ModelResult:
+        """Return a result by index or step name."""
+        if isinstance(key, int):
+            return self.results[key]
+        for result in self.results:
+            if result.step is not None and result.step.name == key:
+                return result
+        raise KeyError(f"result for step {key} is not defined")
+
+    @property
+    def step_names(self) -> tuple[str, ...]:
+        """Return result step names."""
+        return tuple(
+            result.step.name if result.step is not None else "None"
+            for result in self.results
+        )
+
+    @property
+    def latest(self) -> ModelResult:
+        """Return the last result."""
+        if not self.results:
+            raise IndexError("no model results available")
+        return self.results[-1]
+
+
 def _default_result_name(model: Any, step: Any) -> str:
     """Return a stable default result name."""
     if getattr(model, "name", None):

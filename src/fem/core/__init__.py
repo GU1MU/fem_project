@@ -29,7 +29,7 @@ from .model import (
     Surface,
     SurfaceLoad,
 )
-from .result import ModelResult
+from .result import ModelResult, ModelResults
 
 __all__ = [
     "AnalysisStep",
@@ -46,6 +46,7 @@ __all__ = [
     "Mesh2DProtocol",
     "Mesh3DProtocol",
     "ModelResult",
+    "ModelResults",
     "NodalLoad",
     "Node2D",
     "Node3D",

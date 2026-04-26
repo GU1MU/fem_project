@@ -267,6 +267,27 @@ class FEMModel:
             name=name,
         )
 
+    def run_all(
+        self,
+        steps: Any = None,
+        output_dir: Any = "results",
+        name: str | None = None,
+    ) -> Any:
+        """Solve multiple non-initial steps and return a result collection."""
+        from .result import ModelResults
+
+        selected_steps = self._run_all_steps(steps)
+        multi_step = len(selected_steps) > 1
+        results = [
+            self.run(
+                step,
+                output_dir=output_dir,
+                name=self._result_name(step, name, multi_step),
+            )
+            for step in selected_steps
+        ]
+        return ModelResults(self, tuple(results))
+
     def _resolve_node_target(self, target: str | int) -> tuple[int, ...]:
         """Resolve a node id or named node set."""
         if isinstance(target, int):
@@ -274,6 +295,32 @@ class FEMModel:
         if target not in self.node_sets:
             raise KeyError(f"node set {target} is not defined")
         return self.node_sets[target].node_ids
+
+    def _run_all_steps(self, steps: Any) -> tuple[AnalysisStep | None, ...]:
+        """Resolve run_all step selectors."""
+        if steps is None:
+            runnable = tuple(step for step in self.steps if step.name.lower() != "initial")
+            if runnable:
+                return runnable
+            if self.steps:
+                return (self.steps[0],)
+            return (None,)
+        if isinstance(steps, (str, int, AnalysisStep)):
+            return (self.get_step(steps),)
+        return tuple(self.get_step(step) for step in steps)
+
+    def _result_name(
+        self,
+        step: AnalysisStep | None,
+        name: str | None,
+        multi_step: bool,
+    ) -> str | None:
+        """Return a non-conflicting result name for run_all."""
+        if not multi_step:
+            return name
+        base = name or self.name or "result"
+        step_name = step.name if step is not None else "step"
+        return f"{base}_{step_name}"
 
     def _step_boundaries(self, step: AnalysisStep) -> tuple[DisplacementConstraint, ...]:
         """Return initial boundaries inherited by the selected step."""
