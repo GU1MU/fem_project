@@ -64,6 +64,10 @@ class SectionAssignment:
     element_set: str
     material: str
     section_type: str = "solid"
+    properties: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "properties", dict(self.properties))
 
 
 @dataclass(frozen=True)
@@ -122,7 +126,7 @@ class OutputRequest:
         object.__setattr__(self, "metadata", dict(self.metadata))
 
 
-@dataclass(frozen=True)
+@dataclass
 class AnalysisStep:
     """Analysis step with loads and output metadata."""
     name: str
@@ -154,6 +158,199 @@ class FEMModel:
     sections: list[SectionAssignment] = field(default_factory=list)
     steps: list[AnalysisStep] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_mesh(
+        cls,
+        mesh: Any,
+        name: str | None = None,
+        boundary: Any | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> "FEMModel":
+        """Create a model from a mesh."""
+        return cls(mesh=mesh, boundary=boundary, name=name, metadata=dict(metadata or {}))
+
+    def add_node_set(
+        self,
+        name: str | NodeSet,
+        node_ids: Sequence[int] | None = None,
+    ) -> NodeSet:
+        """Add a named node set."""
+        node_set = (
+            name
+            if isinstance(name, NodeSet)
+            else NodeSet(str(name), _required_ids(node_ids))
+        )
+        self.node_sets[node_set.name] = node_set
+        return node_set
+
+    def add_element_set(
+        self,
+        name: str | ElementSet,
+        element_ids: Sequence[int] | None = None,
+    ) -> ElementSet:
+        """Add a named element set."""
+        element_set = (
+            name
+            if isinstance(name, ElementSet)
+            else ElementSet(str(name), _required_ids(element_ids))
+        )
+        self.element_sets[element_set.name] = element_set
+        return element_set
+
+    def add_surface(
+        self,
+        name: str | Surface,
+        faces: Sequence[ElementFace] | None = None,
+    ) -> Surface:
+        """Add a named surface."""
+        surface = (
+            name
+            if isinstance(name, Surface)
+            else Surface(str(name), _required_faces(faces))
+        )
+        self.surfaces[surface.name] = surface
+        return surface
+
+    def add_material(
+        self,
+        name: str | MaterialDefinition,
+        **properties: Any,
+    ) -> MaterialDefinition:
+        """Add named material properties."""
+        if isinstance(name, MaterialDefinition):
+            if properties:
+                raise ValueError("material properties cannot be passed with a MaterialDefinition")
+            material = name
+        else:
+            material = MaterialDefinition(str(name), dict(properties))
+        self.materials[material.name] = material
+        self._apply_sections_for_material(material.name)
+        return material
+
+    def assign_section(
+        self,
+        element_set: str | ElementSet,
+        material: str | MaterialDefinition,
+        section_type: str = "solid",
+        **properties: Any,
+    ) -> SectionAssignment:
+        """Assign a material and section properties to an element set."""
+        element_set_name = (
+            element_set.name
+            if isinstance(element_set, ElementSet)
+            else str(element_set)
+        )
+        material_name = (
+            material.name
+            if isinstance(material, MaterialDefinition)
+            else str(material)
+        )
+        section = SectionAssignment(
+            element_set_name,
+            material_name,
+            section_type,
+            dict(properties),
+        )
+        self.sections.append(section)
+        self._apply_section(section)
+        return section
+
+    def add_step(
+        self,
+        name: str | AnalysisStep,
+        procedure: str = "static",
+        **metadata: Any,
+    ) -> AnalysisStep:
+        """Add an analysis step."""
+        step = (
+            name
+            if isinstance(name, AnalysisStep)
+            else AnalysisStep(str(name), procedure, metadata=metadata)
+        )
+        self.steps.append(step)
+        return step
+
+    def add_displacement(
+        self,
+        step: str | int | AnalysisStep | None,
+        target: str | int,
+        first_component: int,
+        last_component: int | None = None,
+        value: float = 0.0,
+    ) -> DisplacementConstraint:
+        """Add a displacement constraint to a step."""
+        selected_step = self._require_step(step)
+        constraint = DisplacementConstraint(
+            target,
+            first_component,
+            last_component if last_component is not None else first_component,
+            value,
+        )
+        self._replace_step(
+            selected_step,
+            boundaries=tuple(selected_step.boundaries) + (constraint,),
+        )
+        return constraint
+
+    def add_nodal_load(
+        self,
+        step: str | int | AnalysisStep | None,
+        target: str | int,
+        component: int,
+        value: float,
+    ) -> NodalLoad:
+        """Add a nodal load to a step."""
+        selected_step = self._require_step(step)
+        load = NodalLoad(target, component, value)
+        self._replace_step(selected_step, cloads=tuple(selected_step.cloads) + (load,))
+        return load
+
+    def add_surface_traction(
+        self,
+        step: str | int | AnalysisStep | None,
+        surface: str | Surface,
+        vector: Sequence[float],
+    ) -> SurfaceLoad:
+        """Add a surface traction to a step."""
+        selected_step = self._require_step(step)
+        surface_name = surface.name if isinstance(surface, Surface) else str(surface)
+        load = SurfaceLoad(surface_name, vector, load_type="traction")
+        self._replace_step(
+            selected_step,
+            surface_loads=tuple(selected_step.surface_loads) + (load,),
+        )
+        return load
+
+    def add_surface_pressure(
+        self,
+        step: str | int | AnalysisStep | None,
+        surface: str | Surface,
+        magnitude: float,
+    ) -> SurfaceLoad:
+        """Add an inward pressure load to a step."""
+        selected_step = self._require_step(step)
+        surface_name = surface.name if isinstance(surface, Surface) else str(surface)
+        load = SurfaceLoad(surface_name, magnitude=magnitude, load_type="pressure")
+        self._replace_step(
+            selected_step,
+            surface_loads=tuple(selected_step.surface_loads) + (load,),
+        )
+        return load
+
+    def add_output_request(
+        self,
+        step: str | int | AnalysisStep | None,
+        kind: str,
+        target: str,
+        variables: Sequence[str] = (),
+        **metadata: Any,
+    ) -> OutputRequest:
+        """Add an output request to a step."""
+        selected_step = self._require_step(step)
+        output = OutputRequest(kind, target, variables, metadata)
+        self._replace_step(selected_step, outputs=tuple(selected_step.outputs) + (output,))
+        return output
 
     def get_step(self, step: str | int | AnalysisStep | None = None) -> AnalysisStep | None:
         """Return an analysis step by name or index."""
@@ -322,6 +519,42 @@ class FEMModel:
         step_name = step.name if step is not None else "step"
         return f"{base}_{step_name}"
 
+    def _require_step(self, step: str | int | AnalysisStep | None) -> AnalysisStep:
+        """Return an existing step or create a default step."""
+        selected_step = self.get_step(step)
+        if selected_step is None:
+            return self.add_step("Step-1")
+        return selected_step
+
+    def _replace_step(self, step: AnalysisStep, **changes: Any) -> AnalysisStep:
+        """Update a step in the model."""
+        for candidate in self.steps:
+            if candidate is step:
+                for name, value in changes.items():
+                    setattr(step, name, value)
+                return step
+        raise KeyError(f"analysis step {step.name} is not in this model")
+
+    def _apply_sections_for_material(self, material: str) -> None:
+        """Apply all sections that reference a material."""
+        for section in self.sections:
+            if section.material == material:
+                self._apply_section(section)
+
+    def _apply_section(self, section: SectionAssignment) -> None:
+        """Copy material and section properties onto element props."""
+        if section.element_set not in self.element_sets:
+            raise KeyError(f"element set {section.element_set} is not defined")
+        if section.material not in self.materials:
+            raise KeyError(f"material {section.material} is not defined")
+
+        element_lookup = {elem.id: elem for elem in self.mesh.elements}
+        props = dict(self.materials[section.material].properties)
+        props.update(section.properties)
+        props["material"] = section.material
+        for element_id in self.element_sets[section.element_set].element_ids:
+            element_lookup[element_id].props.update(props)
+
     def _step_boundaries(self, step: AnalysisStep) -> tuple[DisplacementConstraint, ...]:
         """Return initial boundaries inherited by the selected step."""
         initial = next(
@@ -362,3 +595,17 @@ class FEMModel:
                 f"component {component} is invalid for mesh with "
                 f"{self.mesh.dofs_per_node} DOFs per node"
             )
+
+
+def _required_ids(ids: Sequence[int] | None) -> Sequence[int]:
+    """Return required id data for set builders."""
+    if ids is None:
+        raise ValueError("ids must be provided")
+    return ids
+
+
+def _required_faces(faces: Sequence[ElementFace] | None) -> Sequence[ElementFace]:
+    """Return required face data for surface builders."""
+    if faces is None:
+        raise ValueError("faces must be provided")
+    return faces

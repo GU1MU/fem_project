@@ -4,24 +4,14 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 
 from ..core.mesh import Element2D, Element3D, HexMesh3D, Node2D, Node3D, PlaneMesh2D, TetMesh3D
-from .materials import _get_float_from_material, read
 
 
 def read_tri3(
     inp_path: str,
-    material_id: int,
-    material_path: Optional[str] = None,
     default_thickness: float = 1.0,
     plane_type: Optional[str] = None,
 ) -> PlaneMesh2D:
     """Read a Tri3 plane mesh from Abaqus .inp files."""
-
-    materials_dict: Dict[int, Dict[str, str]] = {}
-    if material_path is not None:
-        materials_dict = read(material_path)
-        if material_id not in materials_dict:
-            raise KeyError(f"material_id={material_id} 不在材料表中（material_path={material_path}）")
-
     nodes: List[Node2D] = []
     elements: List[Element2D] = []
 
@@ -114,25 +104,9 @@ def read_tri3(
                         raise ValueError("plane_type 必须是 'stress' 或 'strain'")
 
                 props: Dict[str, any] = {
-                    "material_id": int(material_id),
                     "thickness": float(default_thickness),
                     "plane_type": pt,
                 }
-
-                if materials_dict:
-                    mat_row = materials_dict[int(material_id)]
-                    E_val = _get_float_from_material(mat_row, ["E", "young", "youngs_modulus"])
-                    nu_val = _get_float_from_material(mat_row, ["nu", "poisson", "poisson_ratio"])
-                    rho_val = _get_float_from_material(mat_row, ["rho", "rou", "density"])
-
-                    if E_val is None or nu_val is None:
-                        raise KeyError(
-                            f"材料 {material_id} 缺少 E/nu 信息，row={mat_row}"
-                        )
-                    props["E"] = E_val
-                    props["nu"] = nu_val
-                    if rho_val is not None:
-                        props["rho"] = rho_val
 
                 elem = Element2D(
                     id=eid,
@@ -152,8 +126,6 @@ def read_tri3(
 
 def read_quad4(
     inp_path: str,
-    material_id: int,
-    material_path: Optional[str] = None,
     default_thickness: float = 1.0,
     plane_type: Optional[str] = None,
     fix_orientation: bool = True,
@@ -161,12 +133,6 @@ def read_quad4(
     tol: float = 1e-10,
 ) -> PlaneMesh2D:
     """Read Quad4 plane mesh (CPS4/CPE4) from Abaqus INP file."""
-    materials: Dict[int, Dict[str, str]] = {}
-    if material_path is not None:
-        materials = read(material_path)
-        if material_id not in materials:
-            raise KeyError(f"material_id={material_id} not found in {material_path}")
-
     nodes: List[Node2D] = []
     elements: List[Element2D] = []
     node_lookup: Dict[int, Node2D] = {}
@@ -261,22 +227,9 @@ def read_quad4(
                     raise ValueError("plane_type must be 'stress' or 'strain'")
 
                 props: Dict[str, any] = {
-                    "material_id": int(material_id),
                     "thickness": float(default_thickness),
                     "plane_type": pt,
                 }
-
-                if materials:
-                    row = materials[int(material_id)]
-                    E = _get_float_from_material(row, ["E", "young", "youngs_modulus"])
-                    nu = _get_float_from_material(row, ["nu", "poisson", "poisson_ratio"])
-                    rho = _get_float_from_material(row, ["rho", "rou", "density"])
-                    if E is None or nu is None:
-                        raise KeyError(f"Material {material_id} missing E/nu: {row}")
-                    props["E"] = E
-                    props["nu"] = nu
-                    if rho is not None:
-                        props["rho"] = rho
 
                 elements.append(
                     Element2D(
@@ -316,19 +269,11 @@ def read_quad4(
 
 def read_quad8(
     inp_path: str,
-    material_id: int,
-    material_path: Optional[str] = None,
     default_thickness: float = 1.0,
     plane_type: Optional[str] = None,
     fix_orientation: bool = True,
 ) -> PlaneMesh2D:
     """Read Quad8 plane mesh (CPS8/CPE8) from Abaqus INP file."""
-    materials: Dict[int, Dict[str, str]] = {}
-    if material_path is not None:
-        materials = read(material_path)
-        if material_id not in materials:
-            raise KeyError(f"material_id={material_id} not found in {material_path}")
-
     nodes: List[Node2D] = []
     elements: List[Element2D] = []
     node_lookup: Dict[int, Node2D] = {}
@@ -403,22 +348,9 @@ def read_quad8(
                     raise ValueError("plane_type must be 'stress' or 'strain'")
 
                 props: Dict[str, any] = {
-                    "material_id": int(material_id),
                     "thickness": float(default_thickness),
                     "plane_type": pt,
                 }
-
-                if materials:
-                    row = materials[int(material_id)]
-                    E = _get_float_from_material(row, ["E", "young", "youngs_modulus"])
-                    nu = _get_float_from_material(row, ["nu", "poisson", "poisson_ratio"])
-                    rho = _get_float_from_material(row, ["rho", "rou", "density"])
-                    if E is None or nu is None:
-                        raise KeyError(f"Material {material_id} missing E/nu: {row}")
-                    props["E"] = E
-                    props["nu"] = nu
-                    if rho is not None:
-                        props["rho"] = rho
 
                 elements.append(
                     Element2D(
@@ -455,11 +387,7 @@ def read_quad8(
     return PlaneMesh2D(nodes=nodes, elements=elements)
 
 
-def read_tet10(
-    inp_path: str,
-    material_id: int,
-    material_path: Optional[str] = None,
-) -> TetMesh3D:
+def read_tet10(inp_path: str) -> TetMesh3D:
     """Read a Tet10 3D mesh from Abaqus .inp file (C3D10 elements).
 
     Node ordering (Abaqus convention):
@@ -467,12 +395,6 @@ def read_tet10(
         Edge midnodes: 5=edge(1,2), 6=edge(3,4), 7=edge(1,4),
                        8=edge(1,3), 9=edge(2,4), 10=edge(2,3)
     """
-    materials: Dict[int, Dict[str, str]] = {}
-    if material_path is not None:
-        materials = read(material_path)
-        if material_id not in materials:
-            raise KeyError(f"material_id={material_id} not found in {material_path}")
-
     nodes: List[Node3D] = []
     elements: List[Element3D] = []
     node_lookup: Dict[int, Node3D] = {}
@@ -541,28 +463,11 @@ def read_tet10(
                     nids = [int(p) for p in pending_elem_parts[1:11]]
                     pending_elem_parts = pending_elem_parts[11:]
 
-                    props: Dict[str, any] = {
-                        "material_id": int(material_id),
-                    }
-
-                    if materials:
-                        row = materials[int(material_id)]
-                        E = _get_float_from_material(row, ["E", "young", "youngs_modulus"])
-                        nu = _get_float_from_material(row, ["nu", "poisson", "poisson_ratio"])
-                        rho = _get_float_from_material(row, ["rho", "rou", "density"])
-                        if E is None or nu is None:
-                            raise KeyError(f"Material {material_id} missing E/nu: {row}")
-                        props["E"] = E
-                        props["nu"] = nu
-                        if rho is not None:
-                            props["rho"] = rho
-
                     elements.append(
                         Element3D(
                             id=eid,
                             node_ids=nids,
                             type="Tet10",
-                            props=props,
                         )
                     )
 
@@ -598,18 +503,8 @@ def read_tet10(
     return TetMesh3D(nodes=nodes, elements=elements)
 
 
-def read_tet4(
-    inp_path: str,
-    material_id: int,
-    material_path: Optional[str] = None,
-) -> TetMesh3D:
+def read_tet4(inp_path: str) -> TetMesh3D:
     """Read a Tet4 3D mesh from Abaqus .inp file (C3D4 / C3D4T elements)."""
-    materials: Dict[int, Dict[str, str]] = {}
-    if material_path is not None:
-        materials = read(material_path)
-        if material_id not in materials:
-            raise KeyError(f"material_id={material_id} not found in {material_path}")
-
     nodes: List[Node3D] = []
     elements: List[Element3D] = []
     node_lookup: Dict[int, Node3D] = {}
@@ -672,28 +567,11 @@ def read_tet4(
                 eid = int(parts[0])
                 n1, n2, n3, n4 = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
 
-                props: Dict[str, any] = {
-                    "material_id": int(material_id),
-                }
-
-                if materials:
-                    row = materials[int(material_id)]
-                    E = _get_float_from_material(row, ["E", "young", "youngs_modulus"])
-                    nu = _get_float_from_material(row, ["nu", "poisson", "poisson_ratio"])
-                    rho = _get_float_from_material(row, ["rho", "rou", "density"])
-                    if E is None or nu is None:
-                        raise KeyError(f"Material {material_id} missing E/nu: {row}")
-                    props["E"] = E
-                    props["nu"] = nu
-                    if rho is not None:
-                        props["rho"] = rho
-
                 elements.append(
                     Element3D(
                         id=eid,
                         node_ids=[n1, n2, n3, n4],
                         type="Tet4",
-                        props=props,
                     )
                 )
 
@@ -719,18 +597,8 @@ def read_tet4(
     return TetMesh3D(nodes=nodes, elements=elements)
 
 
-def read_hex8(
-    inp_path: str,
-    material_id: int,
-    material_path: Optional[str] = None,
-) -> HexMesh3D:
+def read_hex8(inp_path: str) -> HexMesh3D:
     """Read a Hex8 3D mesh from Abaqus .inp file (C3D8 elements)."""
-    materials: Dict[int, Dict[str, str]] = {}
-    if material_path is not None:
-        materials = read(material_path)
-        if material_id not in materials:
-            raise KeyError(f"material_id={material_id} not found in {material_path}")
-
     nodes: List[Node3D] = []
     elements: List[Element3D] = []
     node_lookup: Dict[int, Node3D] = {}
@@ -789,28 +657,11 @@ def read_hex8(
                 eid = int(parts[0])
                 nids = [int(p) for p in parts[1:9]]
 
-                props: Dict[str, any] = {
-                    "material_id": int(material_id),
-                }
-
-                if materials:
-                    row = materials[int(material_id)]
-                    E = _get_float_from_material(row, ["E", "young", "youngs_modulus"])
-                    nu = _get_float_from_material(row, ["nu", "poisson", "poisson_ratio"])
-                    rho = _get_float_from_material(row, ["rho", "rou", "density"])
-                    if E is None or nu is None:
-                        raise KeyError(f"Material {material_id} missing E/nu: {row}")
-                    props["E"] = E
-                    props["nu"] = nu
-                    if rho is not None:
-                        props["rho"] = rho
-
                 elements.append(
                     Element3D(
                         id=eid,
                         node_ids=nids,
                         type="Hex8",
-                        props=props,
                     )
                 )
 

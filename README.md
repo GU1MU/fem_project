@@ -28,7 +28,7 @@
 - `src/fem/abaqus/`
   读取 Abaqus 输入文件并构造 `FEMModel`
 - `src/fem/io/`
-  读取 Abaqus/CSV 网格和材料数据，入口为 `io.inp`、`io.csv`、`io.materials`
+  读取Abaqus/CSV网格数据和独立材料表，入口为 `io.inp`、`io.csv`、`io.materials`
 - `src/fem/elements/`
   计算各类单元刚度矩阵
 - `src/fem/assemble/`
@@ -72,21 +72,22 @@ $env:PYTHONPATH = "src"
   2D `Quad8` 悬臂梁
 - `examples/cantilever_beam_hex8.py`
   3D `Hex8` 悬臂梁
+- `examples/cantilever_beam_hex8_manual_model.py`
+  读取inp网格后的手写`mesh-model-solve-result`流程示例
 
 运行示例时，在已激活虚拟环境且设置好 `PYTHONPATH` 后执行，例如：
 
 ```powershell
 python examples\plate_with_hole_quad4.py
 python examples\cantilever_beam_hex8.py
+python examples\cantilever_beam_hex8_manual_model.py
 ```
 
 ## 标准求解流程
 
 示例脚本遵循同一条主线：
 
-1. 用`fem.abaqus`读取完整Abaqus模型，或用`fem.io`读取网格和材料
-2. 用`fem.elements`提供单元内核
-3. 用 `assemble` 装配全局刚度矩阵
-4. 用 `boundary` 定义约束和载荷
-5. 用`model.run()`求解并生成`ModelResult`
-6. 用`ModelResult`或`post`导出位移、应力和可视化结果
+1. 手写`mesh`并用`FEMModel.from_mesh()`建模，或用`fem.abaqus`读取完整Abaqus模型
+2. 在`FEMModel`中添加材料、集合、截面、step、约束和载荷
+3. 用`model.run()`求解并生成`ModelResult`
+4. 用`ModelResult`或`post`导出位移、反力、应力和可视化结果
