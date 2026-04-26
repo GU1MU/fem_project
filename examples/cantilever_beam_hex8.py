@@ -48,26 +48,26 @@ K_mod, F_mod = boundary.constraints.apply_dirichlet(K, F, bc)
 U = solvers.linear.solve(K_mod, F_mod)
 
 # Export nodal displacements and stresses.
-post.displacement.export_nodal_displacement(
+post.displacement.export.nodal(
     mesh=mesh,
     U=U,
     path=r"results\cantilever_beam_hex8_nodal_displacements.csv",
 )
 
-post.stress.export.hex8_element(
+post.stress.export.element(
     mesh=mesh,
     U=U,
     path=r"results\cantilever_beam_hex8_element_stress.csv",
 )
 
-post.stress.export.hex8_nodal(
+post.stress.export.nodal(
     mesh=mesh,
     U=U,
     path=r"results\cantilever_beam_hex8_nodal_stress.csv",
 )
 
 # Export VTK for visualization.
-post.vtk.export_from_csv_3d(
+post.vtk.export.from_csv(
     mesh=mesh,
     disp_csv_path=r"results\cantilever_beam_hex8_nodal_displacements.csv",
     elem_csv_path=r"results\cantilever_beam_hex8_element_stress.csv",

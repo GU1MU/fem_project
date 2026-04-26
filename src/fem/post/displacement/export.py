@@ -3,7 +3,7 @@ from typing import List, Optional, Sequence
 
 import numpy as np
 
-from ..mesh import Mesh2DProtocol, Mesh3DProtocol, Node2D, Node3D
+from ...mesh import Mesh2DProtocol, Mesh3DProtocol, Node2D, Node3D
 
 
 def _export_nodal_displacement_2d(
@@ -84,7 +84,7 @@ def _export_nodal_displacement_3d(
             writer.writerow([nid, node.x, node.y, node.z] + disp_vals)
 
 
-def export_nodal_displacement(
+def nodal(
     mesh,
     U: Sequence[float],
     path: str,

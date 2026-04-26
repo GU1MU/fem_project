@@ -20,6 +20,60 @@ _PLANE_ELEMENT_HEADER = ["elem_id", "node_id", "local_node", "sig_x", "sig_y", "
 _PLANE_NODAL_HEADER = ["node_id", "x", "y", "sig_x", "sig_y", "tau_xy", "mises"]
 
 
+def element(
+    mesh: Any,
+    U: Sequence[float],
+    path: str,
+    element_type: str | None = None,
+    gauss_order: int | None = None,
+) -> None:
+    """Export element stresses to CSV. Element type is inferred for single-type meshes."""
+    type_key = _resolve_type_key(mesh, element_type)
+    if type_key == "truss2d":
+        truss2d_element(mesh, U, path)
+    elif type_key == "tri3":
+        tri3_plane_element(mesh, U, path)
+    elif type_key == "quad4":
+        quad4_plane_element(mesh, U, path, 2 if gauss_order is None else gauss_order)
+    elif type_key == "quad8":
+        quad8_plane_element(mesh, U, path, 3 if gauss_order is None else gauss_order)
+    elif type_key == "hex8":
+        hex8_element(mesh, U, path)
+    elif type_key == "tet4":
+        tet4_element(mesh, U, path)
+    elif type_key == "tet10":
+        tet10_element(mesh, U, path)
+    else:
+        raise ValueError(f"Unsupported stress element type: {element_type!r}")
+
+
+def nodal(
+    mesh: Any,
+    U: Sequence[float],
+    path: str,
+    element_type: str | None = None,
+    gauss_order: int | None = None,
+) -> None:
+    """Export nodal stresses to CSV. Element type is inferred for single-type meshes."""
+    type_key = _resolve_type_key(mesh, element_type)
+    if type_key == "truss2d":
+        raise ValueError("Nodal stress export is not available for Truss2D elements")
+    if type_key == "tri3":
+        tri3_nodal(mesh, U, path)
+    elif type_key == "quad4":
+        quad4_nodal(mesh, U, path, 2 if gauss_order is None else gauss_order)
+    elif type_key == "quad8":
+        quad8_nodal(mesh, U, path, 3 if gauss_order is None else gauss_order)
+    elif type_key == "hex8":
+        hex8_nodal(mesh, U, path, 2 if gauss_order is None else gauss_order)
+    elif type_key == "tet4":
+        tet4_nodal(mesh, U, path)
+    elif type_key == "tet10":
+        tet10_nodal(mesh, U, path)
+    else:
+        raise ValueError(f"Unsupported stress element type: {element_type!r}")
+
+
 def truss2d_element(mesh: TrussMesh2D, U: Sequence[float], path: str) -> None:
     """Export Truss2D element axial strain/stress and mises to CSV."""
     U = _validated_u(mesh, U)
@@ -347,6 +401,43 @@ def _node_lookup(mesh: Any) -> dict[int, Any]:
 def _matches(elem: Any, type_key: str) -> bool:
     """Return whether an element type matches a stress exporter key."""
     return type_key in str(elem.type).lower()
+
+
+def _resolve_type_key(mesh: Any, element_type: str | None) -> str:
+    """Resolve a normalized stress exporter key."""
+    if element_type is not None:
+        type_key = _type_key(element_type)
+        if type_key is None:
+            raise ValueError(f"Unsupported stress element type: {element_type!r}")
+        return type_key
+
+    type_keys = {_type_key(elem.type) for elem in mesh.elements}
+    type_keys.discard(None)
+    if not type_keys:
+        raise ValueError("Cannot infer stress element type from mesh")
+    if len(type_keys) > 1:
+        raise ValueError("Mixed element meshes require an explicit element_type")
+    return type_keys.pop()
+
+
+def _type_key(element_type: Any) -> str | None:
+    """Normalize mesh element type names to stress exporter keys."""
+    etype = str(element_type).lower()
+    if "truss" in etype:
+        return "truss2d"
+    if "tri3" in etype:
+        return "tri3"
+    if "quad4" in etype:
+        return "quad4"
+    if "quad8" in etype:
+        return "quad8"
+    if "hex8" in etype:
+        return "hex8"
+    if "tet10" in etype:
+        return "tet10"
+    if "tet4" in etype:
+        return "tet4"
+    return None
 
 
 def _write_zero_solid_node(writer: csv.writer, nid: int, node: Node3D) -> None:
