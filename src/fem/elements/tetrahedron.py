@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 
 from .base import build_node_lookup
-from ..materials import compute_3d_elastic_matrix
+from ..materials import linear_elastic
 
 
 def tet4_shape_funcs_grads(xi: float, eta: float, zeta: float):
@@ -298,7 +298,7 @@ class _TetKernelBase:
             nu = float(elem.props["nu"])
         except KeyError as e:
             raise KeyError(f"Element {elem.id} missing property {e.args[0]}, props={elem.props}")
-        return compute_3d_elastic_matrix(E, nu)
+        return linear_elastic.solid_3d_matrix(E, nu)
 
     def _nodes(self, mesh: Any, elem: Any, node_lookup: dict[int, Any] | None):
         """Return element nodes in element order."""

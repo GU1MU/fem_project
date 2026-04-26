@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 
-def compute_plane_stress_matrix(E: float, nu: float) -> np.ndarray:
+def plane_stress_matrix(E: float, nu: float) -> np.ndarray:
     """Return isotropic plane stress constitutive matrix."""
     E = float(E)
     nu = float(nu)
@@ -15,7 +15,7 @@ def compute_plane_stress_matrix(E: float, nu: float) -> np.ndarray:
     ], dtype=float)
 
 
-def compute_plane_strain_matrix(E: float, nu: float) -> np.ndarray:
+def plane_strain_matrix(E: float, nu: float) -> np.ndarray:
     """Return isotropic plane strain constitutive matrix."""
     E = float(E)
     nu = float(nu)
@@ -29,17 +29,17 @@ def compute_plane_strain_matrix(E: float, nu: float) -> np.ndarray:
     ], dtype=float)
 
 
-def compute_plane_elastic_matrix(E: float, nu: float, plane_type: str) -> np.ndarray:
+def plane_matrix(E: float, nu: float, plane_type: str) -> np.ndarray:
     """Return plane stress or plane strain constitutive matrix."""
     pt = str(plane_type).lower()
     if pt.startswith("stress"):
-        return compute_plane_stress_matrix(E, nu)
+        return plane_stress_matrix(E, nu)
     if pt.startswith("strain"):
-        return compute_plane_strain_matrix(E, nu)
+        return plane_strain_matrix(E, nu)
     raise ValueError(f"invalid plane_type={plane_type}")
 
 
-def compute_3d_elastic_matrix(E: float, nu: float) -> np.ndarray:
+def solid_3d_matrix(E: float, nu: float) -> np.ndarray:
     """Return isotropic 3D constitutive matrix."""
     E = float(E)
     nu = float(nu)

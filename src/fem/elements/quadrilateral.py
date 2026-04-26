@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 
 from .base import build_node_lookup, extrapolate_tensor_product
-from ..materials import compute_plane_elastic_matrix
+from ..materials import linear_elastic
 
 
 def quad4_shape_grad_xi_eta(xi: float, eta: float) -> np.ndarray:
@@ -152,7 +152,7 @@ class Quad4PlaneKernel:
             raise KeyError(f"elem {elem.id} missing '{e.args[0]}' in props={elem.props}")
 
         pt, _ = self._plane_data(elem)
-        D = compute_plane_elastic_matrix(E, nu, pt)
+        D = linear_elastic.plane_matrix(E, nu, pt)
         return D, t
 
     def _plane_data(self, elem: Any):
@@ -473,7 +473,7 @@ class Quad8PlaneKernel:
             raise KeyError(f"elem {elem.id} missing '{e.args[0]}' in props={elem.props}")
 
         pt, _ = self._plane_data(elem)
-        D = compute_plane_elastic_matrix(E, nu, pt)
+        D = linear_elastic.plane_matrix(E, nu, pt)
         return D, t
 
     def _plane_data(self, elem: Any):

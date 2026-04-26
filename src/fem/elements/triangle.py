@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 
 from .base import build_node_lookup
-from ..materials import compute_plane_elastic_matrix
+from ..materials import linear_elastic
 
 
 class Tri3PlaneKernel:
@@ -104,7 +104,7 @@ class Tri3PlaneKernel:
 
         t = self._thickness(elem)
         pt, _ = self._plane_data(elem)
-        D = compute_plane_elastic_matrix(E, nu, pt)
+        D = linear_elastic.plane_matrix(E, nu, pt)
         return D, t
 
     def _plane_data(self, elem: Any):
