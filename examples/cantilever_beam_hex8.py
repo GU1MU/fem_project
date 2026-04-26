@@ -54,13 +54,13 @@ post.displacement.export_nodal_displacement(
     path=r"results\cantilever_beam_hex8_nodal_displacements.csv",
 )
 
-post.stress.export_hex8_element_stress(
+post.stress.export.hex8_element(
     mesh=mesh,
     U=U,
     path=r"results\cantilever_beam_hex8_element_stress.csv",
 )
 
-post.stress.export_hex8_nodal_stress(
+post.stress.export.hex8_nodal(
     mesh=mesh,
     U=U,
     path=r"results\cantilever_beam_hex8_nodal_stress.csv",

@@ -18,6 +18,38 @@ class ElementKernel(Protocol):
         """Return element stiffness matrix."""
         ...
 
+    def stress_at(
+        self,
+        mesh: Any,
+        elem: Any,
+        U: np.ndarray,
+        *coords: float,
+        node_lookup: dict[int, Any] | None = None,
+    ):
+        """Return stress at one natural coordinate point when supported."""
+        ...
+
+    def nodal_stress(
+        self,
+        mesh: Any,
+        elem: Any,
+        U: np.ndarray,
+        node_lookup: dict[int, Any] | None = None,
+        *args,
+    ) -> np.ndarray:
+        """Return element-nodal stresses when supported."""
+        ...
+
+    def element_stress(
+        self,
+        mesh: Any,
+        elem: Any,
+        U: np.ndarray,
+        node_lookup: dict[int, Any] | None = None,
+    ):
+        """Return element stress data when supported."""
+        ...
+
 
 def build_node_lookup(mesh: Any) -> dict[int, Any]:
     """Return node lookup keyed by node id."""
