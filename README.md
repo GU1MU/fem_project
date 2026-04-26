@@ -24,7 +24,9 @@
 ## 核心模块
 
 - `src/fem/core/`
-  定义节点、单元、网格容器和节点到全局自由度编号的映射
+  定义节点、单元、网格容器、自由度映射和标准模型数据对象，包含集合、面、材料、截面和分析步框架
+- `src/fem/abaqus/`
+  读取 Abaqus 输入文件并构造 `FEMModel`
 - `src/fem/io/`
   读取 Abaqus/CSV 网格和材料数据，入口为 `io.inp`、`io.csv`、`io.materials`
 - `src/fem/elements/`
@@ -38,7 +40,7 @@
 - `src/fem/post/`
   导出位移、应力和 VTK 结果
 - `src/fem/selection/`
-  按几何位置选择节点、边或面，用于施加载荷和约束
+  按几何位置选择节点、边或面，并可生成模型中的集合和面对象
 
 ## 运行环境
 

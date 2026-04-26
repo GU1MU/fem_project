@@ -2,15 +2,27 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..core.model import NodeSet
+
 
 def by_x(mesh: Any, x_value: float, tol: float = 1e-8) -> list[int]:
     """Return node ids whose x matches target within tol."""
     return [node.id for node in mesh.nodes if abs(node.x - x_value) <= tol]
 
 
+def set_by_x(mesh: Any, name: str, x_value: float, tol: float = 1e-8) -> NodeSet:
+    """Return a named node set selected by x."""
+    return NodeSet(name, by_x(mesh, x_value, tol))
+
+
 def by_y(mesh: Any, y_value: float, tol: float = 1e-8) -> list[int]:
     """Return node ids whose y matches target within tol."""
     return [node.id for node in mesh.nodes if abs(node.y - y_value) <= tol]
+
+
+def set_by_y(mesh: Any, name: str, y_value: float, tol: float = 1e-8) -> NodeSet:
+    """Return a named node set selected by y."""
+    return NodeSet(name, by_y(mesh, y_value, tol))
 
 
 def by_z(mesh: Any, z_value: float, tol: float = 1e-8) -> list[int]:
@@ -19,6 +31,11 @@ def by_z(mesh: Any, z_value: float, tol: float = 1e-8) -> list[int]:
         node.id for node in mesh.nodes
         if hasattr(node, "z") and abs(node.z - z_value) <= tol
     ]
+
+
+def set_by_z(mesh: Any, name: str, z_value: float, tol: float = 1e-8) -> NodeSet:
+    """Return a named node set selected by z."""
+    return NodeSet(name, by_z(mesh, z_value, tol))
 
 
 def by_coord(
@@ -35,6 +52,18 @@ def by_coord(
         node.id for node in mesh.nodes
         if _coord_matches(node, x, y, z, tol)
     ]
+
+
+def set_by_coord(
+    mesh: Any,
+    name: str,
+    x: float | None = None,
+    y: float | None = None,
+    z: float | None = None,
+    tol: float = 1e-8,
+) -> NodeSet:
+    """Return a named node set selected by coordinates."""
+    return NodeSet(name, by_coord(mesh, x=x, y=y, z=z, tol=tol))
 
 
 def in_box(
@@ -63,6 +92,31 @@ def in_box(
             continue
         result.append(node.id)
     return result
+
+
+def set_in_box(
+    mesh: Any,
+    name: str,
+    xmin: float | None = None,
+    xmax: float | None = None,
+    ymin: float | None = None,
+    ymax: float | None = None,
+    zmin: float | None = None,
+    zmax: float | None = None,
+) -> NodeSet:
+    """Return a named node set inside a bounding box."""
+    return NodeSet(
+        name,
+        in_box(
+            mesh,
+            xmin=xmin,
+            xmax=xmax,
+            ymin=ymin,
+            ymax=ymax,
+            zmin=zmin,
+            zmax=zmax,
+        ),
+    )
 
 
 def in_circle(mesh: Any, x: float, y: float, r: float, tol: float = 1e-8) -> list[int]:

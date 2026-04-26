@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from . import edges, faces, nodes
+from . import edges, elements, faces, nodes
 
-__all__ = ["edges", "faces", "nodes"]
+__all__ = ["edges", "elements", "faces", "nodes"]

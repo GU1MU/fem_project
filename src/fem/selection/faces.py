@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 from typing import Any
 
+from ..core.model import ElementFace, Surface
 from .nodes import _coord_matches
 
 
@@ -43,6 +44,17 @@ def by_x(
     return by_coord(mesh, x=x_value, tol=tol, boundary_only=boundary_only)
 
 
+def surface_by_x(
+    mesh: Any,
+    name: str,
+    x_value: float,
+    tol: float = 1e-8,
+    boundary_only: bool = True,
+) -> Surface:
+    """Return a named surface selected by x."""
+    return _surface_from_faces(name, by_x(mesh, x_value, tol, boundary_only))
+
+
 def by_y(
     mesh: Any,
     y_value: float,
@@ -53,6 +65,17 @@ def by_y(
     return by_coord(mesh, y=y_value, tol=tol, boundary_only=boundary_only)
 
 
+def surface_by_y(
+    mesh: Any,
+    name: str,
+    y_value: float,
+    tol: float = 1e-8,
+    boundary_only: bool = True,
+) -> Surface:
+    """Return a named surface selected by y."""
+    return _surface_from_faces(name, by_y(mesh, y_value, tol, boundary_only))
+
+
 def by_z(
     mesh: Any,
     z_value: float,
@@ -61,6 +84,17 @@ def by_z(
 ) -> list[tuple[int, int, list[int]]]:
     """Return faces whose all nodes match z within tol."""
     return by_coord(mesh, z=z_value, tol=tol, boundary_only=boundary_only)
+
+
+def surface_by_z(
+    mesh: Any,
+    name: str,
+    z_value: float,
+    tol: float = 1e-8,
+    boundary_only: bool = True,
+) -> Surface:
+    """Return a named surface selected by z."""
+    return _surface_from_faces(name, by_z(mesh, z_value, tol, boundary_only))
 
 
 def by_coord(
@@ -84,6 +118,36 @@ def by_coord(
             for node_id in node_ids
         )
     ]
+
+
+def surface_by_coord(
+    mesh: Any,
+    name: str,
+    x: float | None = None,
+    y: float | None = None,
+    z: float | None = None,
+    tol: float = 1e-8,
+    boundary_only: bool = True,
+) -> Surface:
+    """Return a named surface selected by coordinates."""
+    return _surface_from_faces(
+        name,
+        by_coord(mesh, x=x, y=y, z=z, tol=tol, boundary_only=boundary_only),
+    )
+
+
+def _surface_from_faces(
+    name: str,
+    face_entries: list[tuple[int, int, list[int]]],
+) -> Surface:
+    """Convert face selection tuples to a named surface."""
+    return Surface(
+        name,
+        [
+            ElementFace(elem_id, local_face, node_ids)
+            for elem_id, local_face, node_ids in face_entries
+        ],
+    )
 
 
 def _element_face_node_ids(elem: Any) -> list[list[int]]:
