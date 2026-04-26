@@ -14,9 +14,9 @@ def from_result(
     polar_center: Optional[Sequence[float]] = None,
 ) -> None:
     """Export result data to VTK, creating missing CSV files first."""
-    mesh = result.mesh
+    mesh = result.model.mesh
     base_name = name or result.name or getattr(result.model, "name", None) or "result"
-    output_root = Path(output_dir or result.output_dir)
+    output_root = Path(output_dir) if output_dir is not None else Path(result.output_dir)
     paths = _default_result_paths(output_root, str(base_name))
 
     from_csv(

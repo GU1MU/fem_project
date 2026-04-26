@@ -69,15 +69,15 @@ $env:PYTHONPATH = "src"
 当前仓库中已有2个主示例：
 
 - `examples/cantilever_beam_hex8.py`
-  从Abaqus输入文件读取完整模型的3D `Hex8`悬臂梁
-- `examples/cantilever_beam_hex8_manual_model.py`
   读取inp网格后的手写`mesh-model-solve-result`流程示例
+- `examples/cantilever_beam_hex8_abaqus.py`
+  从Abaqus输入文件读取完整模型的3D `Hex8`悬臂梁
 
 运行示例时，在已激活虚拟环境且设置好 `PYTHONPATH` 后执行，例如：
 
 ```powershell
 python examples\cantilever_beam_hex8.py
-python examples\cantilever_beam_hex8_manual_model.py
+python examples\cantilever_beam_hex8_abaqus.py
 ```
 
 ## 标准求解流程
