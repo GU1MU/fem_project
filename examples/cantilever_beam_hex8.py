@@ -1,13 +1,13 @@
 # Example: cantilever beam solved with Hex8 solid elements.
 
-from fem.io import read_hex8_3d_abaqus
+from fem.io import inp
 from fem.assemble import assemble_global_stiffness_sparse
 from fem import boundary, selection
 from fem import solvers
 import fem.post as post
 
 # Read mesh and material data from Abaqus input.
-mesh = read_hex8_3d_abaqus(
+mesh = inp.read_hex8(
     inp_path=r"examples\cantilever_beam_hex8.inp",
     material_path=r"examples\cantilever_beam_materials.csv",
     material_id=1,

@@ -4,10 +4,10 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 
 from ..core.mesh import Element2D, Element3D, HexMesh3D, Node2D, Node3D, PlaneMesh2D, TetMesh3D
-from .materials_io import _get_float_from_material, read_materials_as_dict
+from .materials import _get_float_from_material, read
 
 
-def read_tri3_2d_abaqus(
+def read_tri3(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
@@ -18,7 +18,7 @@ def read_tri3_2d_abaqus(
 
     materials_dict: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        materials_dict = read_materials_as_dict(material_path)
+        materials_dict = read(material_path)
         if material_id not in materials_dict:
             raise KeyError(f"material_id={material_id} 不在材料表中（material_path={material_path}）")
 
@@ -150,7 +150,7 @@ def read_tri3_2d_abaqus(
     return PlaneMesh2D(nodes=nodes, elements=elements)
 
 
-def read_quad4_2d_abaqus(
+def read_quad4(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
@@ -163,7 +163,7 @@ def read_quad4_2d_abaqus(
     """Read Quad4 plane mesh (CPS4/CPE4) from Abaqus INP file."""
     materials: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        materials = read_materials_as_dict(material_path)
+        materials = read(material_path)
         if material_id not in materials:
             raise KeyError(f"material_id={material_id} not found in {material_path}")
 
@@ -314,7 +314,7 @@ def read_quad4_2d_abaqus(
     return PlaneMesh2D(nodes=nodes, elements=elements)
 
 
-def read_quad8_2d_abaqus(
+def read_quad8(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
@@ -325,7 +325,7 @@ def read_quad8_2d_abaqus(
     """Read Quad8 plane mesh (CPS8/CPE8) from Abaqus INP file."""
     materials: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        materials = read_materials_as_dict(material_path)
+        materials = read(material_path)
         if material_id not in materials:
             raise KeyError(f"material_id={material_id} not found in {material_path}")
 
@@ -455,7 +455,7 @@ def read_quad8_2d_abaqus(
     return PlaneMesh2D(nodes=nodes, elements=elements)
 
 
-def read_tet10_3d_abaqus(
+def read_tet10(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
@@ -469,7 +469,7 @@ def read_tet10_3d_abaqus(
     """
     materials: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        materials = read_materials_as_dict(material_path)
+        materials = read(material_path)
         if material_id not in materials:
             raise KeyError(f"material_id={material_id} not found in {material_path}")
 
@@ -598,7 +598,7 @@ def read_tet10_3d_abaqus(
     return TetMesh3D(nodes=nodes, elements=elements)
 
 
-def read_tet4_3d_abaqus(
+def read_tet4(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
@@ -606,7 +606,7 @@ def read_tet4_3d_abaqus(
     """Read a Tet4 3D mesh from Abaqus .inp file (C3D4 / C3D4T elements)."""
     materials: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        materials = read_materials_as_dict(material_path)
+        materials = read(material_path)
         if material_id not in materials:
             raise KeyError(f"material_id={material_id} not found in {material_path}")
 
@@ -719,7 +719,7 @@ def read_tet4_3d_abaqus(
     return TetMesh3D(nodes=nodes, elements=elements)
 
 
-def read_hex8_3d_abaqus(
+def read_hex8(
     inp_path: str,
     material_id: int,
     material_path: Optional[str] = None,
@@ -727,7 +727,7 @@ def read_hex8_3d_abaqus(
     """Read a Hex8 3D mesh from Abaqus .inp file (C3D8 elements)."""
     materials: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        materials = read_materials_as_dict(material_path)
+        materials = read(material_path)
         if material_id not in materials:
             raise KeyError(f"material_id={material_id} not found in {material_path}")
 

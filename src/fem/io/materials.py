@@ -4,7 +4,7 @@ import csv
 from typing import Dict, List, Optional
 
 
-def read_materials_as_dict(path: str) -> Dict[int, Dict[str, str]]:
+def read(path: str) -> Dict[int, Dict[str, str]]:
     """Read material CSV into a dict keyed by material_id."""
     materials: Dict[int, Dict[str, str]] = {}
 

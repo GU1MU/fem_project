@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import csv
+import csv as csv_lib
 from typing import Dict, List, Optional
 
 from ..core.mesh import BeamMesh2D, Element2D, Element3D, HexMesh3D, Node2D, Node3D, PlaneMesh2D, TetMesh3D, TrussMesh2D
-from .materials_io import _get_float_from_material, read_materials_as_dict
+from .materials import _get_float_from_material, read
 
 
-def read_truss2d_csv(
+def read_truss2d(
     mesh_path: str,
     material_path: Optional[str] = None,
 ) -> TrussMesh2D:
@@ -15,7 +15,7 @@ def read_truss2d_csv(
 
     materials_dict: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        materials_dict = read_materials_as_dict(material_path)
+        materials_dict = read(material_path)
 
     nodes: List[Node2D] = []
     elements: List[Element2D] = []
@@ -23,7 +23,7 @@ def read_truss2d_csv(
     mode: Optional[str] = None
 
     with open(mesh_path, "r", encoding="utf-8") as f:
-        reader = csv.reader(f)
+        reader = csv_lib.reader(f)
 
         for line_no, row in enumerate(reader, start=1):
             row = [col.strip() for col in row]
@@ -98,7 +98,7 @@ def read_truss2d_csv(
     return TrussMesh2D(nodes=nodes, elements=elements)
 
 
-def read_beam2d_csv(
+def read_beam2d(
     mesh_path: str,
     material_path: Optional[str] = None,
 ) -> BeamMesh2D:
@@ -106,7 +106,7 @@ def read_beam2d_csv(
 
     materials_dict: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        materials_dict = read_materials_as_dict(material_path)
+        materials_dict = read(material_path)
 
     nodes: List[Node2D] = []
     elements: List[Element2D] = []
@@ -114,7 +114,7 @@ def read_beam2d_csv(
     mode: Optional[str] = None
 
     with open(mesh_path, "r", encoding="utf-8") as f:
-        reader = csv.reader(f)
+        reader = csv_lib.reader(f)
 
         for line_no, row in enumerate(reader, start=1):
             row = [col.strip() for col in row]
@@ -192,7 +192,7 @@ def read_beam2d_csv(
     return BeamMesh2D(nodes=nodes, elements=elements)
 
 
-def read_tri3_2d_csv(
+def read_tri3(
     mesh_path: str,
     material_path: Optional[str] = None,
     plane_type: str = "stress",
@@ -201,8 +201,8 @@ def read_tri3_2d_csv(
 
     materials_dict: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        from .materials_io import read_materials_as_dict, _get_float_from_material
-        materials_dict = read_materials_as_dict(material_path)
+        from .materials import _get_float_from_material, read
+        materials_dict = read(material_path)
 
     nodes: List[Node2D] = []
     elements: List[Element2D] = []
@@ -210,7 +210,7 @@ def read_tri3_2d_csv(
     mode: Optional[str] = None
 
     with open(mesh_path, "r", encoding="utf-8") as f:
-        reader = csv.reader(f)
+        reader = csv_lib.reader(f)
 
         for line_no, row in enumerate(reader, start=1):
             row = [col.strip() for col in row]
@@ -255,7 +255,7 @@ def read_tri3_2d_csv(
                 }
 
                 if materials_dict:
-                    from .materials_io import _get_float_from_material
+                    from .materials import _get_float_from_material
 
                     mat_row = materials_dict.get(mid)
                     if mat_row is not None:
@@ -295,7 +295,7 @@ def read_tri3_2d_csv(
     return PlaneMesh2D(nodes=nodes, elements=elements)
 
 
-def read_hex8_csv(
+def read_hex8(
     mesh_path: str,
     material_path: Optional[str] = None,
 ) -> HexMesh3D:
@@ -303,7 +303,7 @@ def read_hex8_csv(
 
     materials_dict: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        materials_dict = read_materials_as_dict(material_path)
+        materials_dict = read(material_path)
 
     nodes: List[Node3D] = []
     elements: List[Element3D] = []
@@ -311,7 +311,7 @@ def read_hex8_csv(
     mode: Optional[str] = None
 
     with open(mesh_path, "r", encoding="utf-8") as f:
-        reader = csv.reader(f)
+        reader = csv_lib.reader(f)
 
         for line_no, row in enumerate(reader, start=1):
             row = [col.strip() for col in row]
@@ -394,7 +394,7 @@ def read_hex8_csv(
     return HexMesh3D(nodes=nodes, elements=elements)
 
 
-def read_tet4_csv(
+def read_tet4(
     mesh_path: str,
     material_path: Optional[str] = None,
 ) -> TetMesh3D:
@@ -403,7 +403,7 @@ def read_tet4_csv(
 
     materials_dict: Dict[int, Dict[str, str]] = {}
     if material_path is not None:
-        materials_dict = read_materials_as_dict(material_path)
+        materials_dict = read(material_path)
 
     nodes: List[Node3D] = []
     elements: List[Element3D] = []
@@ -411,7 +411,7 @@ def read_tet4_csv(
     mode: Optional[str] = None
 
     with open(mesh_path, "r", encoding="utf-8") as f:
-        reader = csv.reader(f)
+        reader = csv_lib.reader(f)
 
         for line_no, row in enumerate(reader, start=1):
             row = [col.strip() for col in row]

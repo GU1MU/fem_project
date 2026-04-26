@@ -26,7 +26,7 @@
 - `src/fem/core/`
   定义节点、单元、网格容器和节点到全局自由度编号的映射
 - `src/fem/io/`
-  读取 Abaqus/CSV 网格和材料数据
+  读取 Abaqus/CSV 网格和材料数据，入口为 `io.inp`、`io.csv`、`io.materials`
 - `src/fem/elements/`
   计算各类单元刚度矩阵
 - `src/fem/assemble/`
