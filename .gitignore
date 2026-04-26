@@ -5,5 +5,4 @@ __pycache__/
 .env
 ex.py
 *.txt
-tests/
 superpowers/
