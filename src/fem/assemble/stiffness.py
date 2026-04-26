@@ -5,7 +5,7 @@ from typing import Any, Sequence
 import numpy as np
 from scipy.sparse import coo_matrix, csr_matrix
 
-from .elements import get_element_kernel
+from ..elements import get_element_kernel
 
 
 def assemble_global_stiffness(mesh: Any) -> np.ndarray:

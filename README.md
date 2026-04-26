@@ -29,7 +29,7 @@
   读取 Abaqus/CSV 网格和材料数据
 - `src/fem/elements/`
   计算各类单元刚度矩阵
-- `src/fem/assemble.py`
+- `src/fem/assemble/`
   装配全局刚度矩阵
 - `src/fem/boundary/`
   定义边界条件、构造载荷向量并施加约束
