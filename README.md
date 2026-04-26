@@ -88,5 +88,5 @@ python examples\cantilever_beam_hex8.py
 2. 用`fem.elements`提供单元内核
 3. 用 `assemble` 装配全局刚度矩阵
 4. 用 `boundary` 定义约束和载荷
-5. 用 `solve` 求解位移
-6. 用 `post` 导出位移、应力和可视化结果
+5. 用`model.run()`求解并生成`ModelResult`
+6. 用`ModelResult`或`post`导出位移、应力和可视化结果

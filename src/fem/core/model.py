@@ -219,15 +219,36 @@ class FEMModel:
 
     def solve(self, step: str | int | AnalysisStep | None = None) -> Any:
         """Solve one linear static step."""
+        return self.run(step).U
+
+    def run(
+        self,
+        step: str | int | AnalysisStep | None = None,
+        output_dir: Any = "results",
+        name: str | None = None,
+    ) -> Any:
+        """Solve one linear static step and return a model result."""
         from ..boundary.constraints import apply_dirichlet
         from ..boundary.loads import build_load_vector
         from ..solvers import linear
+        from .result import ModelResult
 
+        selected_step = self.get_step(step)
         boundary = self.boundary_for_step(step)
         K = self.assemble_stiffness()
         F = build_load_vector(self.mesh, boundary)
         K_mod, F_mod = apply_dirichlet(K, F, boundary)
-        return linear.solve(K_mod, F_mod)
+        U = linear.solve(K_mod, F_mod)
+        reactions = K @ U - F
+        return ModelResult(
+            self,
+            selected_step,
+            U,
+            reactions,
+            boundary,
+            output_dir=output_dir,
+            name=name,
+        )
 
     def _resolve_node_target(self, target: str | int) -> tuple[int, ...]:
         """Resolve a node id or named node set."""

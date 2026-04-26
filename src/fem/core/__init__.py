@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from . import dof, mesh, model
+from . import dof, mesh, model, result
 from .dof import DofMap
 from .mesh import (
     BeamMesh2D,
@@ -28,6 +28,7 @@ from .model import (
     Surface,
     SurfaceLoad,
 )
+from .result import ModelResult
 
 __all__ = [
     "AnalysisStep",
@@ -43,6 +44,7 @@ __all__ = [
     "MaterialDefinition",
     "Mesh2DProtocol",
     "Mesh3DProtocol",
+    "ModelResult",
     "NodalLoad",
     "Node2D",
     "Node3D",
@@ -56,4 +58,5 @@ __all__ = [
     "dof",
     "mesh",
     "model",
+    "result",
 ]
