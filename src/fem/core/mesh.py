@@ -1,0 +1,157 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Protocol, Sequence, runtime_checkable
+
+from .dof import DofMap
+
+
+@dataclass
+class Node2D:
+    """2D node with id and coordinates."""
+    id: int
+    x: float
+    y: float
+
+
+@dataclass
+class Element2D:
+    """2D element with node list, type, and properties."""
+    id: int
+    node_ids: List[int]
+    type: str = "Truss2D"
+    props: Dict[str, Any] = field(default_factory=dict)
+
+
+@runtime_checkable
+class Mesh2DProtocol(Protocol):
+    """Protocol for 2D FEM meshes."""
+    dofs_per_node: int
+    num_dofs: int
+    node_ids: Sequence[int]
+    nodes: List
+    elements: List
+
+    def global_dof(self, node_id: int, component: int) -> int: ...
+    def node_dofs(self, node_id: int) -> Sequence[int]: ...
+    def element_dofs(self, elem) -> Sequence[int]: ...
+
+
+class _DofMappedMeshMixin:
+    """Shared DOF access for mesh containers."""
+
+    def __post_init__(self):
+        self.dof_map = DofMap.from_nodes(self.nodes, self.dofs_per_node)
+
+    @property
+    def node_ids(self):
+        """Node ids in global DOF order."""
+        return self.dof_map.node_ids
+
+    @property
+    def num_dofs(self) -> int:
+        """Total number of DOFs."""
+        return self.dof_map.num_dofs
+
+    @property
+    def num_nodes(self) -> int:
+        """Number of nodes."""
+        return self.dof_map.num_nodes
+
+    @property
+    def num_elements(self) -> int:
+        """Number of elements."""
+        return len(self.elements)
+
+    def global_dof(self, node_id: int, component: int) -> int:
+        """Return global DOF index for a node component."""
+        return self.dof_map.global_dof(node_id, component)
+
+    def node_dofs(self, node_id: int):
+        """Return global DOF indices for a node."""
+        return self.dof_map.node_dofs(node_id)
+
+    def element_dofs(self, elem):
+        """Return global DOF indices for an element."""
+        return self.dof_map.element_dofs(elem.node_ids)
+
+    def generate_global_dof_sequence(self):
+        """Generate (node_id, component, dof_id) tuples."""
+        return self.dof_map.generate_global_dof_sequence()
+
+
+@dataclass
+class TrussMesh2D(_DofMappedMeshMixin):
+    """Truss2D mesh container (ux, uy)."""
+    nodes: List[Node2D]
+    elements: List[Element2D]
+    dofs_per_node: int = 2
+    dof_map: DofMap = field(init=False)
+
+
+@dataclass
+class BeamMesh2D(_DofMappedMeshMixin):
+    """Beam2D mesh container (ux, uy, rz)."""
+    nodes: List[Node2D]
+    elements: List[Element2D]
+    dofs_per_node: int = 3
+    dof_map: DofMap = field(init=False)
+
+
+@dataclass
+class PlaneMesh2D(_DofMappedMeshMixin):
+    """Plane mesh container (ux, uy)."""
+    nodes: List[Node2D]
+    elements: List[Element2D]
+    dofs_per_node: int = 2
+    dof_map: DofMap = field(init=False)
+
+
+@dataclass
+class Node3D:
+    """3D node with id and coordinates."""
+    id: int
+    x: float
+    y: float
+    z: float
+
+
+@dataclass
+class Element3D:
+    """3D element with node list, type, and properties."""
+    id: int
+    node_ids: List[int]
+    type: str = "Hex8"
+    props: Dict[str, Any] = field(default_factory=dict)
+
+
+@runtime_checkable
+class Mesh3DProtocol(Protocol):
+    """Protocol for 3D FEM meshes."""
+    dofs_per_node: int
+    num_dofs: int
+    node_ids: Sequence[int]
+    nodes: List
+    elements: List
+
+    def global_dof(self, node_id: int, component: int) -> int: ...
+    def node_dofs(self, node_id: int) -> Sequence[int]: ...
+    def element_dofs(self, elem) -> Sequence[int]: ...
+
+
+@dataclass
+class HexMesh3D(_DofMappedMeshMixin):
+    """Hexahedral 3D mesh container (ux, uy, uz)."""
+    nodes: List[Node3D]
+    elements: List[Element3D]
+    dofs_per_node: int = 3
+    dof_map: DofMap = field(init=False)
+
+
+@dataclass
+class TetMesh3D(_DofMappedMeshMixin):
+    """Tetrahedral 3D mesh container (ux, uy, uz)."""
+    nodes: List[Node3D]
+    elements: List[Element3D]
+    dofs_per_node: int = 3
+    dof_map: DofMap = field(init=False)

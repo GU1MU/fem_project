@@ -1,0 +1,192 @@
+from __future__ import annotations
+
+import csv
+from pathlib import Path
+from typing import Sequence
+
+from ...elements import get_element_kernel
+from ...core.mesh import HexMesh3D, Mesh3DProtocol, PlaneMesh2D, TrussMesh2D
+from ._common import (
+    PLANE_ELEMENT_HEADER,
+    SOLID_HEADER,
+    TET_CENTROID,
+    matches,
+    nodal_stress,
+    node_lookup,
+    validated_u,
+)
+from .invariants import von_mises_3d, von_mises_plane
+
+
+def by_type(
+    type_key: str,
+    mesh,
+    U: Sequence[float],
+    path: str,
+    gauss_order: int | None = None,
+) -> None:
+    """Export element stresses by normalized element type key."""
+    if type_key == "truss2d":
+        truss2d(mesh, U, path)
+    elif type_key == "tri3":
+        tri3_plane(mesh, U, path)
+    elif type_key == "quad4":
+        quad4_plane(mesh, U, path, 2 if gauss_order is None else gauss_order)
+    elif type_key == "quad8":
+        quad8_plane(mesh, U, path, 3 if gauss_order is None else gauss_order)
+    elif type_key == "hex8":
+        hex8(mesh, U, path)
+    elif type_key == "tet4":
+        tet4(mesh, U, path)
+    elif type_key == "tet10":
+        tet10(mesh, U, path)
+    else:
+        raise ValueError(f"Unsupported stress element type key: {type_key!r}")
+
+
+def truss2d(mesh: TrussMesh2D, U: Sequence[float], path: str) -> None:
+    """Export Truss2D element axial strain/stress and mises to CSV."""
+    U = validated_u(mesh, U)
+    lookup = node_lookup(mesh)
+
+    path = _prepare_path(path)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "elem_id",
+            "node_i",
+            "node_j",
+            "axial_strain",
+            "axial_stress",
+            "mises_stress",
+        ])
+        for elem in mesh.elements:
+            ni_id, nj_id = elem.node_ids
+            axial_strain, axial_stress, mises_stress = get_element_kernel(
+                elem.type
+            ).element_stress(mesh, elem, U, lookup)
+            writer.writerow([
+                elem.id,
+                ni_id,
+                nj_id,
+                axial_strain,
+                axial_stress,
+                mises_stress,
+            ])
+
+
+def tri3_plane(mesh: PlaneMesh2D, U: Sequence[float], path: str) -> None:
+    """Export Tri3 element-nodal stresses without averaging."""
+    _plane(mesh, U, path, "tri3")
+
+
+def quad4_plane(
+    mesh: PlaneMesh2D,
+    U: Sequence[float],
+    path: str,
+    gauss_order: int = 2,
+) -> None:
+    """Export Quad4 element-nodal stresses without averaging."""
+    _plane(mesh, U, path, "quad4", gauss_order)
+
+
+def quad8_plane(
+    mesh: PlaneMesh2D,
+    U: Sequence[float],
+    path: str,
+    gauss_order: int = 3,
+) -> None:
+    """Export Quad8 element-nodal stresses without averaging."""
+    _plane(mesh, U, path, "quad8", gauss_order)
+
+
+def hex8(mesh: HexMesh3D, U: Sequence[float], path: str) -> None:
+    """Export Hex8 centroid stresses to CSV."""
+    _solid(mesh, U, path, "hex8", (0.0, 0.0, 0.0))
+
+
+def tet4(mesh: Mesh3DProtocol, U: Sequence[float], path: str) -> None:
+    """Export Tet4 centroid stresses to CSV."""
+    _solid(mesh, U, path, "tet4", TET_CENTROID)
+
+
+def tet10(mesh: Mesh3DProtocol, U: Sequence[float], path: str) -> None:
+    """Export Tet10 centroid stresses to CSV."""
+    _solid(mesh, U, path, "tet10", TET_CENTROID)
+
+
+def _plane(
+    mesh: PlaneMesh2D,
+    U: Sequence[float],
+    path: str,
+    type_key: str,
+    gauss_order: int | None = None,
+) -> None:
+    """Export plane element-nodal stresses without averaging."""
+    U = validated_u(mesh, U)
+    lookup = node_lookup(mesh)
+
+    path = _prepare_path(path)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(PLANE_ELEMENT_HEADER)
+        for elem in mesh.elements:
+            if not matches(elem, type_key):
+                continue
+            node_vals, plane_type, nu = nodal_stress(mesh, elem, U, lookup, gauss_order)
+            for local_idx, nid in enumerate(elem.node_ids, start=1):
+                sig_x, sig_y, tau_xy = node_vals[local_idx - 1].tolist()
+                writer.writerow([
+                    elem.id,
+                    nid,
+                    local_idx,
+                    sig_x,
+                    sig_y,
+                    tau_xy,
+                    von_mises_plane(sig_x, sig_y, tau_xy, plane_type, nu),
+                ])
+
+
+def _solid(
+    mesh: Mesh3DProtocol,
+    U: Sequence[float],
+    path: str,
+    type_key: str,
+    natural_coords: tuple[float, float, float],
+) -> None:
+    """Export solid element stresses at one natural coordinate point."""
+    U = validated_u(mesh, U)
+    lookup = node_lookup(mesh)
+
+    path = _prepare_path(path)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(SOLID_HEADER)
+        for elem in mesh.elements:
+            if not matches(elem, type_key):
+                continue
+            stress = get_element_kernel(elem.type).stress_at(
+                mesh,
+                elem,
+                U,
+                *natural_coords,
+                lookup,
+            )
+            sig_x, sig_y, sig_z, tau_xy, tau_yz, tau_zx = stress
+            writer.writerow([
+                elem.id,
+                sig_x,
+                sig_y,
+                sig_z,
+                tau_xy,
+                tau_yz,
+                tau_zx,
+                von_mises_3d(sig_x, sig_y, sig_z, tau_xy, tau_yz, tau_zx),
+            ])
+
+
+def _prepare_path(path: str | Path) -> Path:
+    """Create output parent directory and return a Path."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    return output_path
