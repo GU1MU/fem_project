@@ -3,7 +3,7 @@
 from fem.io import read_hex8_3d_abaqus
 from fem.assemble import assemble_global_stiffness_sparse
 from fem import boundary, selection
-from fem.solve import solve_linear_system_sparse
+from fem import solvers
 import fem.post as post
 
 # Read mesh and material data from Abaqus input.
@@ -45,7 +45,7 @@ F = boundary.loads.build_load_vector(mesh, bc)
 K_mod, F_mod = boundary.constraints.apply_dirichlet(K, F, bc)
 
 # Solve for nodal displacements.
-U = solve_linear_system_sparse(K_mod, F_mod)
+U = solvers.linear.solve(K_mod, F_mod)
 
 # Export nodal displacements and stresses.
 post.displacement.export_nodal_displacement(

@@ -35,7 +35,7 @@
   装配全局刚度矩阵
 - `src/fem/boundary/`
   定义边界条件、构造载荷向量并施加约束
-- `src/fem/solve.py`
+- `src/fem/solvers/`
   求解线性方程组
 - `src/fem/post/`
   导出位移、应力和 VTK 结果
