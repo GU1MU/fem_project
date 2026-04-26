@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from pathlib import Path
 from typing import Dict, Sequence
 
 import numpy as np
@@ -113,6 +114,7 @@ def _plane(
             sums[nid] = sums.get(nid, np.zeros(3, dtype=float)) + node_vals[i]
             counts[nid] = counts.get(nid, 0) + 1
 
+    path = _prepare_path(path)
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(PLANE_NODAL_HEADER)
@@ -145,6 +147,7 @@ def _solid(
     U = validated_u(mesh, U)
     lookup = node_lookup(mesh)
 
+    path = _prepare_path(path)
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(SOLID_NODAL_HEADER)
@@ -179,3 +182,10 @@ def _solid(
                 tau_zx,
                 von_mises_3d(sig_x, sig_y, sig_z, tau_xy, tau_yz, tau_zx),
             ])
+
+
+def _prepare_path(path: str | Path) -> Path:
+    """Create output parent directory and return a Path."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    return output_path

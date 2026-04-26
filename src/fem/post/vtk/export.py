@@ -12,22 +12,25 @@ def from_result(
     name: str | None = None,
     polar: bool = False,
     polar_center: Optional[Sequence[float]] = None,
+    overwrite: bool = True,
 ) -> None:
     """Export result data to VTK, creating missing CSV files first."""
     mesh = result.model.mesh
     base_name = name or result.name or getattr(result.model, "name", None) or "result"
-    output_root = Path(output_dir) if output_dir is not None else Path(result.output_dir)
+    output_root = Path(output_dir) if output_dir is not None else Path("results")
     paths = _default_result_paths(output_root, str(base_name))
+    stress_paths = _supported_stress_paths(mesh, paths)
 
     from_csv(
         mesh,
         paths["displacement"],
-        paths["element_stress"],
+        stress_paths["element_stress"],
         paths["vtk"],
-        paths["nodal_stress"],
+        stress_paths["nodal_stress"],
         polar=polar,
         polar_center=polar_center,
         U=result.U,
+        overwrite=overwrite,
     )
 
 
@@ -40,6 +43,7 @@ def from_csv(
     polar: bool = False,
     polar_center: Optional[Sequence[float]] = None,
     U: Optional[Sequence[float]] = None,
+    overwrite: bool = False,
 ) -> None:
     """Convert displacement and stress CSV files to VTK."""
     disp_csv_path = Path(disp_csv_path)
@@ -52,12 +56,13 @@ def from_csv(
     )
 
     if U is not None:
-        _export_missing_csvs(
+        _export_csvs(
             mesh,
             U,
             disp_csv_path,
             elem_csv_path,
             nodal_stress_csv_path,
+            overwrite,
         )
 
     node_disp = fields.read_displacement(mesh, disp_csv_path)
@@ -106,24 +111,42 @@ def _default_result_paths(output_dir: Path, name: str) -> dict[str, Path]:
     }
 
 
-def _export_missing_csvs(
+def _supported_stress_paths(mesh, paths: dict[str, Path]) -> dict[str, Optional[Path]]:
+    """Return default stress paths supported by the mesh element type."""
+    from ..stress import dispatch
+
+    try:
+        type_key = dispatch.resolve_type_key(mesh, None)
+    except ValueError:
+        return {"element_stress": None, "nodal_stress": None}
+
+    element_supported = type_key in {"truss2d", "tri3", "quad4", "quad8", "hex8", "tet4", "tet10"}
+    nodal_supported = type_key in {"tri3", "quad4", "quad8", "hex8", "tet4", "tet10"}
+    return {
+        "element_stress": paths["element_stress"] if element_supported else None,
+        "nodal_stress": paths["nodal_stress"] if nodal_supported else None,
+    }
+
+
+def _export_csvs(
     mesh,
     U: Sequence[float],
     disp_csv_path: Path,
     elem_csv_path: Optional[Path],
     nodal_stress_csv_path: Optional[Path],
+    overwrite: bool,
 ) -> None:
-    """Export any missing CSV inputs needed by the VTK writer."""
+    """Export CSV inputs needed by the VTK writer."""
     from .. import displacement, stress
 
     disp_csv_path.parent.mkdir(parents=True, exist_ok=True)
-    if not disp_csv_path.exists():
+    if overwrite or not disp_csv_path.exists():
         displacement.export.nodal(mesh, U, disp_csv_path)
 
-    if elem_csv_path is not None and not elem_csv_path.exists():
+    if elem_csv_path is not None and (overwrite or not elem_csv_path.exists()):
         elem_csv_path.parent.mkdir(parents=True, exist_ok=True)
         stress.export.element(mesh, U, elem_csv_path)
 
-    if nodal_stress_csv_path is not None and not nodal_stress_csv_path.exists():
+    if nodal_stress_csv_path is not None and (overwrite or not nodal_stress_csv_path.exists()):
         nodal_stress_csv_path.parent.mkdir(parents=True, exist_ok=True)
         stress.export.nodal(mesh, U, nodal_stress_csv_path)

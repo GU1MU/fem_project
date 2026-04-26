@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from pathlib import Path
 from typing import Sequence
 
 from ...elements import get_element_kernel
@@ -48,6 +49,7 @@ def truss2d(mesh: TrussMesh2D, U: Sequence[float], path: str) -> None:
     U = validated_u(mesh, U)
     lookup = node_lookup(mesh)
 
+    path = _prepare_path(path)
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([
@@ -124,6 +126,7 @@ def _plane(
     U = validated_u(mesh, U)
     lookup = node_lookup(mesh)
 
+    path = _prepare_path(path)
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(PLANE_ELEMENT_HEADER)
@@ -155,6 +158,7 @@ def _solid(
     U = validated_u(mesh, U)
     lookup = node_lookup(mesh)
 
+    path = _prepare_path(path)
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(SOLID_HEADER)
@@ -179,3 +183,10 @@ def _solid(
                 tau_zx,
                 von_mises_3d(sig_x, sig_y, sig_z, tau_xy, tau_yz, tau_zx),
             ])
+
+
+def _prepare_path(path: str | Path) -> Path:
+    """Create output parent directory and return a Path."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    return output_path

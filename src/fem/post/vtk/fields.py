@@ -66,6 +66,7 @@ def read_nodal_stress(path: str) -> Dict[str, Dict[int, float]]:
 def read_element_stress(path: str) -> Dict[str, Dict[int, float]]:
     """Read element stress CSV into field dictionaries."""
     field_data: Dict[str, Dict[int, float]] = {}
+    counts: Dict[str, Dict[int, int]] = {}
     with open(path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         if "elem_id" not in (reader.fieldnames or []):
@@ -81,6 +82,7 @@ def read_element_stress(path: str) -> Dict[str, Dict[int, float]]:
 
         for name in stress_field_names:
             field_data[name] = {}
+            counts[name] = {}
 
         for row in reader:
             eid = int(row["elem_id"])
@@ -92,6 +94,11 @@ def read_element_stress(path: str) -> Dict[str, Dict[int, float]]:
                     val = float(val_str)
                 except ValueError:
                     val = 0.0
-                field_data[name][eid] = val
+                field_data[name][eid] = field_data[name].get(eid, 0.0) + val
+                counts[name][eid] = counts[name].get(eid, 0) + 1
+
+    for name, values in field_data.items():
+        for eid, total in list(values.items()):
+            values[eid] = total / counts[name][eid]
 
     return field_data

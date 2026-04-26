@@ -13,8 +13,6 @@ class ModelResult:
     step: Any
     U: np.ndarray
     reactions: np.ndarray
-    boundary: Any | None = None
-    output_dir: Any = "results"
     name: str | None = None
 
 

@@ -11,10 +11,25 @@ class DofMap:
     node_ids: List[int]
     node_id_to_index: Dict[int, int]
 
+    def __post_init__(self) -> None:
+        self.dofs_per_node = int(self.dofs_per_node)
+        if self.dofs_per_node <= 0:
+            raise ValueError("dofs_per_node must be positive")
+        self.node_ids = [int(node_id) for node_id in self.node_ids]
+        if len(set(self.node_ids)) != len(self.node_ids):
+            raise ValueError("node ids must be unique")
+        self.node_id_to_index = {
+            int(node_id): int(index)
+            for node_id, index in self.node_id_to_index.items()
+        }
+
     @classmethod
     def from_nodes(cls, nodes: List[Any], dofs_per_node: int):
         """Build a DOF map from mesh nodes."""
-        node_ids = sorted(n.id for n in nodes)
+        raw_node_ids = [int(n.id) for n in nodes]
+        if len(set(raw_node_ids)) != len(raw_node_ids):
+            raise ValueError("node ids must be unique")
+        node_ids = sorted(raw_node_ids)
         node_id_to_index = {nid: i for i, nid in enumerate(node_ids)}
         return cls(dofs_per_node, node_ids, node_id_to_index)
 
@@ -30,6 +45,11 @@ class DofMap:
 
     def global_dof(self, node_id: int, component: int) -> int:
         """Return global DOF index for a node component."""
+        component = int(component)
+        if component < 0 or component >= self.dofs_per_node:
+            raise IndexError(
+                f"component {component} out of range for {self.dofs_per_node} DOFs per node"
+            )
         idx = self.node_id_to_index[node_id]
         return idx * self.dofs_per_node + component
 

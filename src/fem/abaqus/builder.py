@@ -41,7 +41,6 @@ def build_model(deck: AbaqusDeck) -> FEMModel:
         for section in deck.sections
     ]
 
-    _apply_sections(mesh, deck, materials, element_sets)
     surfaces = _build_surfaces(mesh, deck, element_sets)
     steps = [
         _build_step(step, mesh, surfaces, element_sets, step_index)
@@ -100,27 +99,6 @@ def _build_mesh(deck: AbaqusDeck) -> Any:
     if all("tet" in elem.type.lower() for elem in elements3d):
         return TetMesh3D(nodes3d, elements3d)
     return HexMesh3D(nodes3d, elements3d)
-
-
-def _apply_sections(
-    mesh: Any,
-    deck: AbaqusDeck,
-    materials: dict[str, MaterialDefinition],
-    element_sets: dict[str, ElementSet],
-) -> None:
-    """Copy section material properties onto mesh elements."""
-    element_lookup = {elem.id: elem for elem in mesh.elements}
-    for section in deck.sections:
-        if section.material not in materials:
-            raise KeyError(f"section material {section.material} is not defined")
-        if section.element_ids:
-            element_ids = section.element_ids
-        else:
-            element_ids = element_sets[section.element_set].element_ids
-        for element_id in element_ids:
-            elem = element_lookup[element_id]
-            elem.props.update(materials[section.material].properties)
-            elem.props["material"] = section.material
 
 
 def _build_surfaces(
@@ -220,7 +198,7 @@ def _build_surface_load(
     if label == "P" or label.startswith("P"):
         return SurfaceLoad(surface_name, magnitude=load.magnitude, load_type="pressure")
     if label == "TRVEC":
-        return SurfaceLoad(surface_name, load.extra, load_type="traction")
+        return SurfaceLoad(surface_name, _scaled_traction_vector(load, mesh), load_type="traction")
     raise ValueError(f"unsupported Abaqus distributed load label: {load.label}")
 
 
@@ -246,6 +224,16 @@ def _surface_from_element_target(
     return Surface(name, model_faces)
 
 
+def _scaled_traction_vector(load: AbaqusDistributedLoad, mesh: Any) -> tuple[float, ...]:
+    """Return TRVEC magnitude multiplied by its direction vector."""
+    dim = 3 if mesh.nodes and hasattr(mesh.nodes[0], "z") else 2
+    if len(load.extra) != dim:
+        raise ValueError(
+            f"TRVEC requires {dim} direction components, got {len(load.extra)}"
+        )
+    return tuple(float(load.magnitude * value) for value in load.extra)
+
+
 def _mesh_dimension(elements: list[AbaqusElement]) -> int:
     """Infer mesh dimension from Abaqus element types."""
     dimensions = {_element_dimension(element.type) for element in elements}
@@ -267,17 +255,17 @@ def _element_dimension(element_type: str) -> int:
 def _element_type(element: AbaqusElement) -> str:
     """Map Abaqus element type to local element type."""
     etype = element.type.upper()
-    if etype.startswith(("CPS3", "CPE3")):
+    if etype in ("CPS3", "CPE3"):
         return "Tri3Plane"
-    if etype.startswith(("CPS4", "CPE4")):
+    if etype in ("CPS4", "CPE4"):
         return "Quad4Plane"
-    if etype.startswith(("CPS8", "CPE8")):
+    if etype in ("CPS8", "CPE8"):
         return "Quad8Plane"
-    if etype.startswith("C3D4"):
+    if etype == "C3D4":
         return "Tet4"
-    if etype.startswith("C3D10"):
+    if etype == "C3D10":
         return "Tet10"
-    if etype.startswith("C3D8"):
+    if etype == "C3D8":
         return "Hex8"
     raise ValueError(f"unsupported Abaqus element type: {element.type}")
 

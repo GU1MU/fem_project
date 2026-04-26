@@ -149,7 +149,6 @@ class AnalysisStep:
 class FEMModel:
     """Finite element model data independent of input format."""
     mesh: Any
-    boundary: Any | None = None
     name: str | None = None
     node_sets: dict[str, NodeSet] = field(default_factory=dict)
     element_sets: dict[str, ElementSet] = field(default_factory=dict)

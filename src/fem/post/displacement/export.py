@@ -1,4 +1,5 @@
 import csv
+from pathlib import Path
 from typing import List, Optional, Sequence
 
 import numpy as np
@@ -23,7 +24,7 @@ def _export_nodal_displacement_2d(
         if dofs_per_node == 2:
             component_names = ["ux", "uy"]
         elif dofs_per_node == 3:
-            component_names = ["ux", "uy", "uz"]
+            component_names = ["ux", "uy", "rz"]
         else:
             component_names = [f"u{c}" for c in range(dofs_per_node)]
     else:
@@ -35,6 +36,7 @@ def _export_nodal_displacement_2d(
     node_lookup = {node.id: node for node in mesh.nodes}
     header = ["node_id", "x", "y"] + component_names
 
+    path = _prepare_path(path)
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(header)
@@ -73,6 +75,7 @@ def _export_nodal_displacement_3d(
     node_lookup = {node.id: node for node in mesh.nodes}
     header = ["node_id", "x", "y", "z"] + component_names
 
+    path = _prepare_path(path)
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(header)
@@ -95,3 +98,10 @@ def nodal(
         _export_nodal_displacement_3d(mesh, U, path, component_names)
     else:
         _export_nodal_displacement_2d(mesh, U, path, component_names)
+
+
+def _prepare_path(path: str | Path) -> Path:
+    """Create output parent directory and return a Path."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    return output_path

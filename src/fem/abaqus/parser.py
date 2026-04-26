@@ -190,7 +190,7 @@ class _ParserState:
         name_key = "nset" if mode == "nset" else "elset"
         name = _required_param(self.keyword, name_key)
         target = self.deck.node_sets if mode == "nset" else self.deck.element_sets
-        target[name] = []
+        target.setdefault(name, [])
         self.mode = mode
 
     def _extend_set(self, target: dict[str, list[int]], values: list[str]) -> None:

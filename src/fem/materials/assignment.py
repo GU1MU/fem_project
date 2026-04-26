@@ -34,6 +34,7 @@ def assign(
 def apply_sections(model: Any) -> None:
     """Copy assigned material and section data onto element props."""
     element_lookup = {elem.id: elem for elem in model.mesh.elements}
+    section_keys = model.metadata.setdefault("_section_property_keys_by_element", {})
 
     for section in model.sections:
         if section.material not in model.materials:
@@ -48,4 +49,8 @@ def apply_sections(model: Any) -> None:
         for element_id in model.element_sets[section.element_set].element_ids:
             if element_id not in element_lookup:
                 raise KeyError(f"element {element_id} is not defined")
-            element_lookup[element_id].props.update(props)
+            elem = element_lookup[element_id]
+            for key in section_keys.get(element_id, ()):
+                elem.props.pop(key, None)
+            elem.props.update(props)
+            section_keys[element_id] = tuple(props)
