@@ -3,7 +3,7 @@
 from fem.io import read_hex8_3d_abaqus
 from fem.assemble import assemble_global_stiffness_sparse
 from fem.helper import select_node_ids_by_x, select_node_ids_by_xz
-from fem.boundary import BoundaryCondition3D, build_load_vector_3d, apply_dirichlet_bc_3d
+from fem import boundary
 from fem.solve import solve_linear_system_sparse
 import fem.post as post
 
@@ -32,7 +32,7 @@ print("Loaded nodes at x=x_max, z=z_max:", nodes_sel_loaded)
 
 # Define boundary conditions:
 # fully fixed at x=x_min, concentrated nodal force on the free-end top edge.
-bc = BoundaryCondition3D()
+bc = boundary.condition.BoundaryCondition()
 
 for node_id in nodes_sel_fixed:
     bc.add_fixed_support(node_id=node_id, components=[0, 1, 2], mesh=mesh)
@@ -42,8 +42,8 @@ for node_id in nodes_sel_loaded:
     bc.add_nodal_force(node_id=node_id, component=2, value=-50.0, mesh=mesh)
 
 # Build load vector and apply Dirichlet constraints.
-F = build_load_vector_3d(mesh, bc)
-K_mod, F_mod = apply_dirichlet_bc_3d(K, F, bc)
+F = boundary.loads.build_load_vector(mesh, bc)
+K_mod, F_mod = boundary.constraints.apply_dirichlet(K, F, bc)
 
 # Solve for nodal displacements.
 U = solve_linear_system_sparse(K_mod, F_mod)

@@ -33,8 +33,8 @@
   计算各类单元刚度矩阵
 - `src/fem/assemble.py`
   装配全局刚度矩阵
-- `src/fem/boundary.py`
-  构造载荷向量并施加边界条件
+- `src/fem/boundary/`
+  定义边界条件、构造载荷向量并施加约束
 - `src/fem/solve.py`
   求解线性方程组
 - `src/fem/post/`
