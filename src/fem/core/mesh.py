@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Protocol, Sequence, runtime_checkable
 
-from .dof_manager import DofMap
+from .dof import DofMap
 
 
 @dataclass

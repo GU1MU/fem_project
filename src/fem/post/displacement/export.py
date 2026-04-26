@@ -3,7 +3,7 @@ from typing import List, Optional, Sequence
 
 import numpy as np
 
-from ...mesh import Mesh2DProtocol, Mesh3DProtocol, Node2D, Node3D
+from ...core.mesh import Mesh2DProtocol, Mesh3DProtocol, Node2D, Node3D
 
 
 def _export_nodal_displacement_2d(

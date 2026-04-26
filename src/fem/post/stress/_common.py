@@ -6,7 +6,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from ...elements import get_element_kernel
-from ...mesh import Mesh3DProtocol, Node3D
+from ...core.mesh import Mesh3DProtocol, Node3D
 
 
 TET_CENTROID = (0.25, 0.25, 0.25)

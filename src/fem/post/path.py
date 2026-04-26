@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
-from ..mesh import Mesh2DProtocol
+from ..core.mesh import Mesh2DProtocol
 
 
 def extract_path_data(

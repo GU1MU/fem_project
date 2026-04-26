@@ -23,10 +23,8 @@
 
 ## 核心模块
 
-- `src/fem/mesh.py`
-  定义节点、单元和不同类型网格容器
-- `src/fem/dof_manager.py`
-  管理节点到全局自由度编号的映射
+- `src/fem/core/`
+  定义节点、单元、网格容器和节点到全局自由度编号的映射
 - `src/fem/io/`
   读取 Abaqus/CSV 网格和材料数据
 - `src/fem/elements/`

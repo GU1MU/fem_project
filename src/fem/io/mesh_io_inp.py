@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 
-from ..mesh import Element2D, Element3D, HexMesh3D, Node2D, Node3D, PlaneMesh2D, TetMesh3D
+from ..core.mesh import Element2D, Element3D, HexMesh3D, Node2D, Node3D, PlaneMesh2D, TetMesh3D
 from .materials_io import _get_float_from_material, read_materials_as_dict
 
 

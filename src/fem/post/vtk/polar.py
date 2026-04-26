@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, Sequence
 
-from ...mesh import Mesh2DProtocol
+from ...core.mesh import Mesh2DProtocol
 
 
 def basis(x: float, y: float, center: Sequence[float]):

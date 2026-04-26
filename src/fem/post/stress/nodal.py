@@ -5,7 +5,7 @@ from typing import Dict, Sequence
 
 import numpy as np
 
-from ...mesh import HexMesh3D, Mesh3DProtocol, PlaneMesh2D
+from ...core.mesh import HexMesh3D, Mesh3DProtocol, PlaneMesh2D
 from ._common import (
     PLANE_NODAL_HEADER,
     SOLID_NODAL_HEADER,

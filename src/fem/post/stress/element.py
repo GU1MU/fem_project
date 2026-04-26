@@ -4,7 +4,7 @@ import csv
 from typing import Sequence
 
 from ...elements import get_element_kernel
-from ...mesh import HexMesh3D, Mesh3DProtocol, PlaneMesh2D, TrussMesh2D
+from ...core.mesh import HexMesh3D, Mesh3DProtocol, PlaneMesh2D, TrussMesh2D
 from ._common import (
     PLANE_ELEMENT_HEADER,
     SOLID_HEADER,
