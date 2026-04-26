@@ -2,8 +2,7 @@
 
 from fem.io import read_hex8_3d_abaqus
 from fem.assemble import assemble_global_stiffness_sparse
-from fem.helper import select_node_ids_by_x, select_node_ids_by_xz
-from fem import boundary
+from fem import boundary, selection
 from fem.solve import solve_linear_system_sparse
 import fem.post as post
 
@@ -24,8 +23,8 @@ z_min, z_max = min(zs), max(zs)
 K = assemble_global_stiffness_sparse(mesh)
 
 # Select fixed boundary (x=x_min) and loaded nodes (x=x_max, z=z_max).
-nodes_sel_fixed = select_node_ids_by_x(mesh, x_value=x_min)
-nodes_sel_loaded = select_node_ids_by_xz(mesh, x_value=x_max, z_value=z_max)
+nodes_sel_fixed = selection.nodes.by_x(mesh, x_min)
+nodes_sel_loaded = selection.nodes.by_coord(mesh, x=x_max, z=z_max)
 
 print("Fixed nodes at x=x_min:", nodes_sel_fixed)
 print("Loaded nodes at x=x_max, z=z_max:", nodes_sel_loaded)
