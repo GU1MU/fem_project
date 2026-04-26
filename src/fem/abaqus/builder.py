@@ -14,9 +14,10 @@ from ..core.model import (
     NodeSet,
     SectionAssignment,
     Surface,
+    SurfaceLoad,
 )
 from ..selection import faces as face_selection
-from .deck import AbaqusBoundary, AbaqusDeck, AbaqusElement, AbaqusStep
+from .deck import AbaqusBoundary, AbaqusDeck, AbaqusDistributedLoad, AbaqusElement, AbaqusStep
 
 
 def build_model(deck: AbaqusDeck) -> FEMModel:
@@ -41,7 +42,10 @@ def build_model(deck: AbaqusDeck) -> FEMModel:
 
     _apply_sections(mesh, deck, materials, element_sets)
     surfaces = _build_surfaces(mesh, deck, element_sets)
-    steps = [_build_step(step, mesh) for step in deck.steps]
+    steps = [
+        _build_step(step, mesh, surfaces, element_sets, step_index)
+        for step_index, step in enumerate(deck.steps)
+    ]
     model = FEMModel(
         mesh=mesh,
         name=deck.name,
@@ -147,7 +151,13 @@ def _build_surfaces(
     return surfaces
 
 
-def _build_step(step: AbaqusStep, mesh: Any) -> AnalysisStep:
+def _build_step(
+    step: AbaqusStep,
+    mesh: Any,
+    surfaces: dict[str, Surface],
+    element_sets: dict[str, ElementSet],
+    step_index: int,
+) -> AnalysisStep:
     """Convert raw Abaqus step data to core step data."""
     boundaries: list[DisplacementConstraint] = []
     for boundary in step.boundaries:
@@ -160,13 +170,75 @@ def _build_step(step: AbaqusStep, mesh: Any) -> AnalysisStep:
         NodalLoad(load.target, load.component, load.value)
         for load in step.cloads
     ]
+    surface_loads = [
+        _build_surface_load(load, mesh, surfaces, element_sets, step.name, step_index, load_index)
+        for load_index, load in enumerate(step.distributed_loads)
+    ]
     return AnalysisStep(
         step.name,
         procedure=step.procedure,
         boundaries=boundaries,
         cloads=cloads,
+        surface_loads=surface_loads,
         metadata=dict(step.metadata),
     )
+
+
+def _build_surface_load(
+    load: AbaqusDistributedLoad,
+    mesh: Any,
+    surfaces: dict[str, Surface],
+    element_sets: dict[str, ElementSet],
+    step_name: str,
+    step_index: int,
+    load_index: int,
+) -> SurfaceLoad:
+    """Convert an Abaqus DLOAD/DSLOAD line to a model surface load."""
+    label = load.label.upper()
+    if load.source == "dsload":
+        surface_name = str(load.target)
+        if surface_name not in surfaces:
+            raise KeyError(f"surface {surface_name} is not defined")
+    elif load.source == "dload":
+        face_label = _dload_face_label(label)
+        surface_name = _generated_surface_name(step_name, step_index, load_index)
+        surfaces[surface_name] = _surface_from_element_target(
+            mesh,
+            surface_name,
+            load.target,
+            face_label,
+            element_sets,
+        )
+    else:
+        raise ValueError(f"unsupported distributed load source: {load.source}")
+
+    if label == "P" or label.startswith("P"):
+        return SurfaceLoad(surface_name, magnitude=load.magnitude, load_type="pressure")
+    if label == "TRVEC":
+        return SurfaceLoad(surface_name, load.extra, load_type="traction")
+    raise ValueError(f"unsupported Abaqus distributed load label: {load.label}")
+
+
+def _surface_from_element_target(
+    mesh: Any,
+    name: str,
+    target: str | int,
+    face_label: str,
+    element_sets: dict[str, ElementSet],
+) -> Surface:
+    """Build a generated surface from an element target and face label."""
+    local_index = _face_label_to_index(face_label)
+    face_lookup = {
+        (elem_id, face_index): node_ids
+        for elem_id, face_index, node_ids in face_selection.all(mesh)
+    }
+    model_faces = []
+    for element_id in _resolve_element_target(target, element_sets):
+        node_ids = face_lookup.get((element_id, local_index))
+        if node_ids is None:
+            raise ValueError(f"element {element_id} does not have Abaqus face {face_label}")
+        model_faces.append(ElementFace(element_id, local_index, node_ids))
+    return Surface(name, model_faces)
 
 
 def _mesh_dimension(elements: list[AbaqusElement]) -> int:
@@ -259,6 +331,20 @@ def _face_label_to_index(face_label: str) -> int:
     if not label.startswith("S"):
         raise ValueError(f"unsupported Abaqus face label: {face_label}")
     return int(label[1:]) - 1
+
+
+def _dload_face_label(load_label: str) -> str:
+    """Convert Abaqus P1-style element pressure labels to S1-style faces."""
+    label = load_label.strip().upper()
+    if label.startswith("P") and len(label) > 1:
+        return "S" + label[1:]
+    raise ValueError(f"DLOAD pressure must use a face label like P1, got {load_label}")
+
+
+def _generated_surface_name(step_name: str, step_index: int, load_index: int) -> str:
+    """Return a stable generated surface name for a DLOAD entry."""
+    safe_step = "".join(ch if ch.isalnum() else "_" for ch in step_name)
+    return f"__DLOAD_{step_index}_{safe_step}_{load_index}"
 
 
 def _unique_ids(ids: Any) -> tuple[int, ...]:

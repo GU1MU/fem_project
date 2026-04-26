@@ -53,6 +53,16 @@ class AbaqusCload:
     value: float
 
 
+@dataclass(frozen=True)
+class AbaqusDistributedLoad:
+    """Raw distributed load from DLOAD or DSLOAD."""
+    target: str | int
+    label: str
+    magnitude: float
+    source: str
+    extra: tuple[float, ...] = ()
+
+
 @dataclass
 class AbaqusStep:
     """Abaqus analysis step data kept before model construction."""
@@ -60,6 +70,7 @@ class AbaqusStep:
     procedure: str = "static"
     boundaries: list[AbaqusBoundary] = field(default_factory=list)
     cloads: list[AbaqusCload] = field(default_factory=list)
+    distributed_loads: list[AbaqusDistributedLoad] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

@@ -8,6 +8,7 @@ from .deck import (
     AbaqusBoundary,
     AbaqusCload,
     AbaqusDeck,
+    AbaqusDistributedLoad,
     AbaqusElement,
     AbaqusMaterial,
     AbaqusSection,
@@ -121,6 +122,16 @@ class _ParserState:
             self.mode = "cload"
             return
 
+        if keyword.name == "dload":
+            self._ensure_step()
+            self.mode = "dload"
+            return
+
+        if keyword.name == "dsload":
+            self._ensure_step()
+            self.mode = "dsload"
+            return
+
         if keyword.name == "end step":
             self.current_step = None
 
@@ -149,6 +160,10 @@ class _ParserState:
             self._add_boundary(values)
         elif self.mode == "cload":
             self._add_cload(values)
+        elif self.mode == "dload":
+            self._add_distributed_load(values, "dload")
+        elif self.mode == "dsload":
+            self._add_distributed_load(values, "dsload")
 
     def _start_set(self, mode: str) -> None:
         name_key = "nset" if mode == "nset" else "elset"
@@ -234,6 +249,19 @@ class _ParserState:
             raise ValueError("*Cload requires target, component, and value")
         self._ensure_step().cloads.append(
             AbaqusCload(_parse_target(values[0]), int(values[1]), float(values[2]))
+        )
+
+    def _add_distributed_load(self, values: list[str], source: str) -> None:
+        if len(values) < 3:
+            raise ValueError(f"*{source} requires target, label, and magnitude")
+        self._ensure_step().distributed_loads.append(
+            AbaqusDistributedLoad(
+                _parse_target(values[0]),
+                values[1].upper(),
+                float(values[2]),
+                source,
+                tuple(float(value) for value in values[3:]),
+            )
         )
 
     def _ensure_step(self) -> AbaqusStep:

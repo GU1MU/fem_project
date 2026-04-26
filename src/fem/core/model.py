@@ -96,10 +96,15 @@ class NodalLoad:
 class SurfaceLoad:
     """Surface load attached to a named surface."""
     surface: str
-    vector: Sequence[float]
+    vector: Sequence[float] = ()
+    magnitude: float | None = None
+    load_type: str = "traction"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "vector", tuple(float(value) for value in self.vector))
+        if self.magnitude is not None:
+            object.__setattr__(self, "magnitude", float(self.magnitude))
+        object.__setattr__(self, "load_type", str(self.load_type).lower())
 
 
 @dataclass(frozen=True)
@@ -136,6 +141,9 @@ class FEMModel:
     def get_step(self, step: str | int | AnalysisStep | None = None) -> AnalysisStep | None:
         """Return an analysis step by name or index."""
         if step is None:
+            for candidate in self.steps:
+                if candidate.name.lower() != "initial":
+                    return candidate
             return self.steps[0] if self.steps else None
         if isinstance(step, AnalysisStep):
             return step
@@ -159,7 +167,7 @@ class FEMModel:
         from ..boundary.condition import BoundaryCondition
 
         boundary = BoundaryCondition()
-        for constraint in selected_step.boundaries:
+        for constraint in self._step_boundaries(selected_step):
             for node_id in self._resolve_node_target(constraint.target):
                 for component in range(
                     constraint.first_component,
@@ -187,11 +195,13 @@ class FEMModel:
             if surface_load.surface not in self.surfaces:
                 raise KeyError(f"surface {surface_load.surface} is not defined")
             for face in self.surfaces[surface_load.surface].faces:
-                boundary.add_surface_traction(
-                    face.elem_id,
-                    face.local_index,
-                    *surface_load.vector,
-                )
+                if surface_load.load_type == "pressure":
+                    vector = self._pressure_vector(face, surface_load)
+                elif surface_load.load_type == "traction":
+                    vector = surface_load.vector
+                else:
+                    raise ValueError(f"unsupported surface load type: {surface_load.load_type}")
+                boundary.add_surface_traction(face.elem_id, face.local_index, *vector)
 
         return boundary
 
@@ -226,6 +236,39 @@ class FEMModel:
         if target not in self.node_sets:
             raise KeyError(f"node set {target} is not defined")
         return self.node_sets[target].node_ids
+
+    def _step_boundaries(self, step: AnalysisStep) -> tuple[DisplacementConstraint, ...]:
+        """Return initial boundaries inherited by the selected step."""
+        initial = next(
+            (candidate for candidate in self.steps if candidate.name.lower() == "initial"),
+            None,
+        )
+        if initial is None or initial is step:
+            return tuple(step.boundaries)
+        return tuple(initial.boundaries) + tuple(step.boundaries)
+
+    def _pressure_vector(self, face: ElementFace, surface_load: SurfaceLoad) -> tuple[float, ...]:
+        """Return an inward pressure vector for one surface face."""
+        if surface_load.magnitude is None:
+            raise ValueError("pressure surface load requires a magnitude")
+        import numpy as np
+
+        node_lookup = {node.id: node for node in self.mesh.nodes}
+        coords = []
+        for node_id in face.node_ids:
+            node = node_lookup[node_id]
+            coords.append([float(node.x), float(node.y), float(getattr(node, "z", 0.0))])
+        if len(coords) < 3:
+            raise ValueError(f"surface face {face} must contain at least 3 nodes for pressure")
+
+        p0 = np.array(coords[0], dtype=float)
+        p1 = np.array(coords[1], dtype=float)
+        p2 = np.array(coords[2], dtype=float)
+        normal = np.cross(p1 - p0, p2 - p0)
+        norm = float(np.linalg.norm(normal))
+        if norm <= 0.0:
+            raise ValueError(f"surface face {face} has zero normal")
+        return tuple(float(value) for value in -surface_load.magnitude * normal / norm)
 
     def _validate_component(self, component: int) -> None:
         """Validate a 1-based component against mesh DOFs."""
