@@ -63,6 +63,15 @@ class AbaqusDistributedLoad:
     extra: tuple[float, ...] = ()
 
 
+@dataclass(frozen=True)
+class AbaqusOutputRequest:
+    """Raw output request parsed from a step."""
+    kind: str
+    target: str
+    variables: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class AbaqusStep:
     """Abaqus analysis step data kept before model construction."""
@@ -71,6 +80,7 @@ class AbaqusStep:
     boundaries: list[AbaqusBoundary] = field(default_factory=list)
     cloads: list[AbaqusCload] = field(default_factory=list)
     distributed_loads: list[AbaqusDistributedLoad] = field(default_factory=list)
+    output_requests: list[AbaqusOutputRequest] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

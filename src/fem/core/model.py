@@ -108,6 +108,21 @@ class SurfaceLoad:
 
 
 @dataclass(frozen=True)
+class OutputRequest:
+    """Output request attached to an analysis step."""
+    kind: str
+    target: str
+    variables: Sequence[str] = ()
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "kind", str(self.kind).lower())
+        object.__setattr__(self, "target", str(self.target).lower())
+        object.__setattr__(self, "variables", tuple(str(value) for value in self.variables))
+        object.__setattr__(self, "metadata", dict(self.metadata))
+
+
+@dataclass(frozen=True)
 class AnalysisStep:
     """Analysis step with loads and output metadata."""
     name: str
@@ -115,12 +130,14 @@ class AnalysisStep:
     boundaries: Sequence[DisplacementConstraint] = ()
     cloads: Sequence[NodalLoad] = ()
     surface_loads: Sequence[SurfaceLoad] = ()
+    outputs: Sequence[OutputRequest] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "boundaries", tuple(self.boundaries))
         object.__setattr__(self, "cloads", tuple(self.cloads))
         object.__setattr__(self, "surface_loads", tuple(self.surface_loads))
+        object.__setattr__(self, "outputs", tuple(self.outputs))
         object.__setattr__(self, "metadata", dict(self.metadata))
 
 

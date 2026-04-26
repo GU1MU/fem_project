@@ -11,6 +11,7 @@ from .deck import (
     AbaqusDistributedLoad,
     AbaqusElement,
     AbaqusMaterial,
+    AbaqusOutputRequest,
     AbaqusSection,
     AbaqusStep,
     AbaqusSurfaceFace,
@@ -53,6 +54,8 @@ class _ParserState:
         self.keyword: Keyword | None = None
         self.current_material: AbaqusMaterial | None = None
         self.current_step: AbaqusStep | None = None
+        self.current_output_kind: str | None = None
+        self.current_output_target: str | None = None
 
     def handle_keyword(self, keyword: Keyword) -> None:
         """Dispatch a keyword line and update data mode."""
@@ -132,6 +135,22 @@ class _ParserState:
             self.mode = "dsload"
             return
 
+        if keyword.name == "output":
+            self._start_output_block(keyword)
+            return
+
+        if keyword.name in ("field output", "history output"):
+            self._start_named_output(keyword)
+            return
+
+        if keyword.name == "node output":
+            self._start_output_data(keyword, "node")
+            return
+
+        if keyword.name == "element output":
+            self._start_output_data(keyword, "element")
+            return
+
         if keyword.name == "end step":
             self.current_step = None
 
@@ -164,6 +183,8 @@ class _ParserState:
             self._add_distributed_load(values, "dload")
         elif self.mode == "dsload":
             self._add_distributed_load(values, "dsload")
+        elif self.mode == "output":
+            self._add_output_request(values)
 
     def _start_set(self, mode: str) -> None:
         name_key = "nset" if mode == "nset" else "elset"
@@ -262,6 +283,51 @@ class _ParserState:
                 source,
                 tuple(float(value) for value in values[3:]),
             )
+        )
+
+    def _start_output_block(self, keyword: Keyword) -> None:
+        kind = "field" if "field" in keyword.flags else "history"
+        if "history" in keyword.flags:
+            kind = "history"
+        self.current_output_kind = kind
+        self.current_output_target = None
+        variable = keyword.params.get("variable")
+        if variable is not None:
+            self._ensure_step().output_requests.append(
+                AbaqusOutputRequest(
+                    kind,
+                    "preselect" if variable.upper() == "PRESELECT" else "output",
+                    (variable.upper(),),
+                    dict(keyword.params),
+                )
+            )
+
+    def _start_named_output(self, keyword: Keyword) -> None:
+        kind = keyword.name.split(" ", 1)[0]
+        self.current_output_kind = kind
+        self.current_output_target = kind
+        variable = keyword.params.get("variable")
+        if variable is not None:
+            self._ensure_step().output_requests.append(
+                AbaqusOutputRequest(kind, kind, (variable.upper(),), dict(keyword.params))
+            )
+            self.mode = None
+        else:
+            self.keyword = keyword
+            self.mode = "output"
+
+    def _start_output_data(self, keyword: Keyword, target: str) -> None:
+        self.current_output_kind = self.current_output_kind or "field"
+        self.current_output_target = target
+        self.keyword = keyword
+        self.mode = "output"
+
+    def _add_output_request(self, values: list[str]) -> None:
+        kind = self.current_output_kind or "field"
+        target = self.current_output_target or kind
+        metadata = dict(self.keyword.params) if self.keyword is not None else {}
+        self._ensure_step().output_requests.append(
+            AbaqusOutputRequest(kind, target, tuple(value.upper() for value in values), metadata)
         )
 
     def _ensure_step(self) -> AbaqusStep:

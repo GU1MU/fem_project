@@ -12,6 +12,7 @@ from ..core.model import (
     MaterialDefinition,
     NodalLoad,
     NodeSet,
+    OutputRequest,
     SectionAssignment,
     Surface,
     SurfaceLoad,
@@ -174,12 +175,17 @@ def _build_step(
         _build_surface_load(load, mesh, surfaces, element_sets, step.name, step_index, load_index)
         for load_index, load in enumerate(step.distributed_loads)
     ]
+    outputs = [
+        OutputRequest(output.kind, output.target, output.variables, output.metadata)
+        for output in step.output_requests
+    ]
     return AnalysisStep(
         step.name,
         procedure=step.procedure,
         boundaries=boundaries,
         cloads=cloads,
         surface_loads=surface_loads,
+        outputs=outputs,
         metadata=dict(step.metadata),
     )
 
