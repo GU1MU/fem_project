@@ -57,7 +57,6 @@ def build_model(deck: AbaqusDeck) -> FEMModel:
         sections=sections,
         steps=steps,
     )
-    model.boundary = model.boundary_for_step() if steps else None
     return model
 
 
